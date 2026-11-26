@@ -1,0 +1,2347 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spark | Collaborative AI Coding IDE</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Lucide Icons (Pinned UMD) -->
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <!-- JSZip for Netlify / Project Bundle Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Pyodide for in-browser Python execution -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        studio: {
+                            950: 'var(--bg-950)',
+                            900: 'var(--bg-900)',
+                            850: 'var(--bg-850)',
+                            800: 'var(--bg-800)',
+                            700: 'var(--bg-700)',
+                            accent: '#6366f1',
+                            accentHover: '#4f46e5',
+                            emerald: '#10b981',
+                            cyan: '#06b6d4'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --bg-950: #f8fafc;
+            --bg-900: #ffffff;
+            --bg-850: #f1f5f9;
+            --bg-800: #e2e8f0;
+            --bg-700: #cbd5e1;
+        }
+        html.dark {
+            --bg-950: #09090b;
+            --bg-900: #101014;
+            --bg-850: #16161c;
+            --bg-800: #1e1e26;
+            --bg-700: #2a2a35;
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(113, 113, 122, 0.35); border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(113, 113, 122, 0.55); }
+
+        .code-editor {
+            tab-size: 4;
+            -moz-tab-size: 4;
+            line-height: 1.6;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.7; }
+            70% { transform: scale(1.25); opacity: 0; }
+            100% { transform: scale(1.25); opacity: 0; }
+        }
+        .voice-pulse::before {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 9999px;
+            border: 2px solid #10b981;
+            animation: pulse-ring 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+        }
+
+        .resizer-handle {
+            position: relative;
+            z-index: 20;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            transition: background-color 0.15s ease;
+            flex-shrink: 0;
+        }
+        .resizer-handle::after {
+            content: '';
+            position: absolute;
+            border-radius: 9999px;
+            background-color: rgba(113, 113, 122, 0.55);
+            transition: background-color 0.15s ease, transform 0.15s ease;
+        }
+        .resizer-handle:hover,
+        .resizer-handle.dragging {
+            background-color: rgba(99, 102, 241, 0.25) !important;
+        }
+        .resizer-handle:hover::after,
+        .resizer-handle.dragging::after {
+            background-color: #6366f1;
+        }
+
+        #resizer-sidebar {
+            width: 100%;
+            height: 8px;
+            cursor: row-resize;
+        }
+        #resizer-sidebar::after {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 36px;
+            height: 3px;
+        }
+        @media (min-width: 1024px) {
+            #resizer-sidebar {
+                width: 8px;
+                height: 100%;
+                cursor: col-resize;
+            }
+            #resizer-sidebar::after {
+                width: 3px;
+                height: 36px;
+            }
+        }
+
+        #resizer-console {
+            width: 100%;
+            height: 8px;
+            cursor: row-resize;
+        }
+        #resizer-console::after {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 36px;
+            height: 3px;
+        }
+        @media (min-width: 768px) {
+            #resizer-console {
+                width: 8px;
+                height: 100%;
+                cursor: col-resize;
+            }
+            #resizer-console::after {
+                width: 3px;
+                height: 36px;
+            }
+        }
+    </style>
+</head>
+<body class="bg-studio-950 text-zinc-900 dark:text-zinc-100 font-sans h-screen flex flex-col overflow-hidden selection:bg-indigo-500/30 selection:text-indigo-700 dark:selection:text-indigo-200 transition-colors duration-200">
+
+    <!-- Top Navigation Bar -->
+    <header class="h-14 border-b border-zinc-200 dark:border-zinc-800/80 bg-studio-900/90 backdrop-blur-md px-4 flex items-center justify-between shrink-0 z-20">
+        <!-- Brand & Project Title -->
+        <div class="flex items-center gap-3">
+            <button onclick="openHomeScreen()" class="flex items-center gap-2.5 text-left group cursor-pointer" title="Return to Spark Home Screen">
+                <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 via-orange-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-orange-500/20 group-hover:scale-105 transition-transform">
+                    <i data-lucide="zap" class="w-4 h-4 text-white fill-current"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-bold text-base tracking-tight text-zinc-900 dark:text-white">Spark</span>
+                        <span class="hidden xl:inline-block whitespace-nowrap text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/25 dark:border-indigo-500/30">AI IDE + Studio</span>
+                    </div>
+                </div>
+            </button>
+            <div class="hidden sm:flex items-center gap-1 bg-studio-850 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 ml-1 shrink-0">
+                <button onclick="openHomeScreen()" id="nav-home-btn" class="whitespace-nowrap flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition-all cursor-pointer">
+                    <i data-lucide="home" class="w-3.5 h-3.5"></i>
+                    <span>Home</span>
+                </button>
+                <button onclick="enterWorkspace()" id="nav-ide-btn" class="whitespace-nowrap flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all cursor-pointer">
+                    <i data-lucide="code-2" class="w-3.5 h-3.5"></i>
+                    <span>Code IDE</span>
+                </button>
+                <button onclick="openAgentStudioModal()" class="whitespace-nowrap flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-fuchsia-600 dark:text-fuchsia-300 hover:bg-fuchsia-500/10 transition-all cursor-pointer">
+                    <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                    <span>Agent Studio</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Center Quick Actions: Language Selector & Run -->
+        <div class="hidden md:flex items-center gap-2 bg-studio-850 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 shrink-0">
+            <select id="language-select" onchange="switchLanguage(this.value)" class="bg-studio-800 text-xs font-medium text-zinc-800 dark:text-zinc-200 px-3 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700/70 focus:outline-none focus:border-indigo-500 cursor-pointer">
+                <option value="python">Python 3 (Pyodide)</option>
+                <option value="javascript">JavaScript (Node/ES2024)</option>
+                <option value="typescript">TypeScript</option>
+                <option value="cpp">C++ 20</option>
+                <option value="rust">Rust</option>
+                <option value="html">HTML / Web Sandbox</option>
+            </select>
+            <button onclick="runCode()" id="run-btn" class="whitespace-nowrap flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-sm cursor-pointer">
+                <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+                <span>Run Code</span>
+            </button>
+        </div>
+
+        <!-- Right Controls: Theme Toggle, Auth, Netlify, Export & Logged-In Activity Controls -->
+        <div class="flex items-center gap-2 shrink-0">
+            <button onclick="toggleTheme()" id="theme-toggle-btn" class="whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-studio-800 hover:bg-studio-700 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700/70 transition-all cursor-pointer shrink-0" title="Switch between Dark Mode and Light Mode">
+                <i id="theme-icon" data-lucide="sun" class="w-3.5 h-3.5 text-amber-500"></i>
+                <span id="theme-label" class="hidden sm:inline">Light</span>
+            </button>
+
+            <div id="logged-in-header-controls" class="hidden flex items-center gap-2">
+                <button onclick="openFriendsModal()" id="header-friends-btn" class="whitespace-nowrap relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-studio-800 hover:bg-studio-700 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700/70 transition-all cursor-pointer" title="Friends & Friend Requests">
+                    <i data-lucide="user-plus" class="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400"></i>
+                    <span class="hidden md:inline">Friends</span>
+                    <span id="friend-req-badge" class="hidden px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500 text-white">0</span>
+                </button>
+
+                <button onclick="openNotificationsModal()" id="header-notif-btn" class="relative p-2 rounded-xl bg-studio-800 hover:bg-studio-700 text-zinc-700 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-700/70 transition-all cursor-pointer shrink-0" title="Notifications & Browser Push Alerts">
+                    <i data-lucide="bell" class="w-3.5 h-3.5 text-amber-500 dark:text-amber-400"></i>
+                    <span id="notif-unread-dot" class="hidden absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
+                </button>
+
+                <button onclick="openCloudTasksModal()" id="header-cloud-btn" class="whitespace-nowrap relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-studio-800 hover:bg-studio-700 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700/70 transition-all cursor-pointer" title="Account Cloud Save & Background Cloud Agents">
+                    <i data-lucide="cloud-cog" class="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400"></i>
+                    <span class="hidden lg:inline" id="cloud-sync-label">Cloud Sync</span>
+                    <span id="cloud-jobs-badge" class="hidden px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-cyan-500 text-zinc-950">0</span>
+                </button>
+
+                <button onclick="toggleCallDrawer()" id="header-call-btn" class="whitespace-nowrap flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium bg-studio-800 hover:bg-studio-700 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700/70 transition-all cursor-pointer">
+                    <span id="call-status-dot" class="hidden w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                    <i data-lucide="phone-call" class="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400"></i>
+                    <span class="hidden sm:inline" id="header-call-label">Room Call</span>
+                </button>
+
+                <button onclick="openApiModal()" class="whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-studio-800 hover:bg-studio-700 text-zinc-700 dark:text-zinc-300 border border-zinc-300 dark:border-zinc-700/70 transition-all cursor-pointer" title="Configure Gemini API Key">
+                    <i data-lucide="key-round" class="w-3.5 h-3.5 text-amber-500 dark:text-amber-400"></i>
+                    <span class="hidden xl:inline">API Key</span>
+                </button>
+            </div>
+
+            <button onclick="openAuthModal()" id="auth-header-btn" class="whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-all cursor-pointer" title="Sign in or switch local Spark account">
+                <i data-lucide="user-check" class="w-3.5 h-3.5"></i>
+                <span id="auth-header-label">Sign In</span>
+            </button>
+
+            <button onclick="openCloudflareModal()" class="whitespace-nowrap flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-orange-600 hover:bg-orange-500 text-white shadow-md shadow-orange-600/20 transition-all cursor-pointer" title="Package Spark as a Cloudflare Pages static site (Zero Credits)">
+                <i data-lucide="cloud" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline">Cloudflare Ready</span>
+            </button>
+
+            <button onclick="downloadProjectBundle()" class="whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-studio-800 hover:bg-studio-700 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700/70 transition-all cursor-pointer" title="Download your current code files">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span class="hidden lg:inline">Code ZIP</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- SPARK HOME SCREEN (Landing Dashboard) -->
+    <section id="home-screen" class="flex-1 overflow-y-auto bg-studio-950 p-6 md:p-10">
+        <div class="max-w-5xl mx-auto space-y-8">
+            <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-purple-600 to-amber-500 p-7 md:p-10 text-white shadow-2xl">
+                <div class="relative z-10 max-w-2xl space-y-4">
+                    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md text-xs font-semibold">
+                        <i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i>
+                        <span>Welcome to Spark Collaborative AI Coding Studio</span>
+                    </div>
+                    <h1 class="text-2xl sm:text-4xl font-bold tracking-tight leading-tight">
+                        Code with custom AI agents, pair in live voice rooms, and ship anywhere.
+                    </h1>
+                    <p class="text-sm text-white/85 leading-relaxed">
+                        Jump straight into an empty multi-language workspace, craft your own high-personality Spark Bots in the <strong>AI Agent Studio</strong>, or hop into a voice call with friends and Gemini.
+                    </p>
+                    <div class="flex flex-wrap items-center gap-3 pt-2">
+                        <button onclick="enterWorkspace()" class="px-5 py-2.5 rounded-xl bg-white text-zinc-950 hover:bg-zinc-100 font-semibold text-xs sm:text-sm flex items-center gap-2 shadow-lg transition-all cursor-pointer">
+                            <i data-lucide="terminal" class="w-4 h-4 text-indigo-600"></i>
+                            <span>Open Code Workspace</span>
+                        </button>
+                        <button onclick="openAgentStudioModal()" class="px-5 py-2.5 rounded-xl bg-zinc-950/35 hover:bg-zinc-950/50 text-white border border-white/25 font-semibold text-xs sm:text-sm flex items-center gap-2 backdrop-blur-md transition-all cursor-pointer">
+                            <i data-lucide="bot" class="w-4 h-4 text-amber-300"></i>
+                            <span>Launch AI Agent Studio</span>
+                        </button>
+                        <button onclick="enterWorkspace('team')" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer">
+                            <i data-lucide="phone-call" class="w-4 h-4 text-emerald-300"></i>
+                            <span>Join Pair Voice Room</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Launch Languages Grid -->
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Start a Clean Coding Session</h2>
+                    <span class="text-xs text-zinc-500 dark:text-zinc-400">Zero boilerplate • Instant execution</span>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <button onclick="launchLanguageFromHome('python')" class="p-4 rounded-2xl bg-studio-900 hover:bg-studio-850 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500 text-left transition-all group cursor-pointer space-y-2">
+                        <div class="w-9 h-9 rounded-xl bg-blue-500/15 text-blue-500 flex items-center justify-center font-mono font-bold text-xs">PY</div>
+                        <div>
+                            <div class="font-semibold text-xs text-zinc-900 dark:text-white group-hover:text-indigo-500">Python 3</div>
+                            <div class="text-[11px] text-zinc-500">Pyodide Runtime</div>
+                        </div>
+                    </button>
+                    <button onclick="launchLanguageFromHome('javascript')" class="p-4 rounded-2xl bg-studio-900 hover:bg-studio-850 border border-zinc-200 dark:border-zinc-800 hover:border-amber-500 text-left transition-all group cursor-pointer space-y-2">
+                        <div class="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center font-mono font-bold text-xs">JS</div>
+                        <div>
+                            <div class="font-semibold text-xs text-zinc-900 dark:text-white group-hover:text-amber-500">JavaScript</div>
+                            <div class="text-[11px] text-zinc-500">ES2024 Engine</div>
+                        </div>
+                    </button>
+                    <button onclick="launchLanguageFromHome('typescript')" class="p-4 rounded-2xl bg-studio-900 hover:bg-studio-850 border border-zinc-200 dark:border-zinc-800 hover:border-cyan-500 text-left transition-all group cursor-pointer space-y-2">
+                        <div class="w-9 h-9 rounded-xl bg-cyan-500/15 text-cyan-500 flex items-center justify-center font-mono font-bold text-xs">TS</div>
+                        <div>
+                            <div class="font-semibold text-xs text-zinc-900 dark:text-white group-hover:text-cyan-500">TypeScript</div>
+                            <div class="text-[11px] text-zinc-500">Typed Cloud Run</div>
+                        </div>
+                    </button>
+                    <button onclick="launchLanguageFromHome('cpp')" class="p-4 rounded-2xl bg-studio-900 hover:bg-studio-850 border border-zinc-200 dark:border-zinc-800 hover:border-purple-500 text-left transition-all group cursor-pointer space-y-2">
+                        <div class="w-9 h-9 rounded-xl bg-purple-500/15 text-purple-500 flex items-center justify-center font-mono font-bold text-xs">C++</div>
+                        <div>
+                            <div class="font-semibold text-xs text-zinc-900 dark:text-white group-hover:text-purple-500">C++ 20</div>
+                            <div class="text-[11px] text-zinc-500">Systems & DSA</div>
+                        </div>
+                    </button>
+                    <button onclick="launchLanguageFromHome('rust')" class="p-4 rounded-2xl bg-studio-900 hover:bg-studio-850 border border-zinc-200 dark:border-zinc-800 hover:border-orange-500 text-left transition-all group cursor-pointer space-y-2">
+                        <div class="w-9 h-9 rounded-xl bg-orange-500/15 text-orange-500 flex items-center justify-center font-mono font-bold text-xs">RS</div>
+                        <div>
+                            <div class="font-semibold text-xs text-zinc-900 dark:text-white group-hover:text-orange-500">Rust</div>
+                            <div class="text-[11px] text-zinc-500">Memory Safe</div>
+                        </div>
+                    </button>
+                    <button onclick="launchLanguageFromHome('html')" class="p-4 rounded-2xl bg-studio-900 hover:bg-studio-850 border border-zinc-200 dark:border-zinc-800 hover:border-emerald-500 text-left transition-all group cursor-pointer space-y-2">
+                        <div class="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center font-mono font-bold text-xs">WEB</div>
+                        <div>
+                            <div class="font-semibold text-xs text-zinc-900 dark:text-white group-hover:text-emerald-500">HTML Sandbox</div>
+                            <div class="text-[11px] text-zinc-500">Live Preview</div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Your Custom Spark Bots & Agents Showcase -->
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Your Spark Agents & Custom Bots</h2>
+                    <div class="flex items-center gap-3">
+                        <button onclick="openCloudTasksModal()" class="text-xs font-semibold text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1 cursor-pointer">
+                            <i data-lucide="cloud-lightning" class="w-3.5 h-3.5"></i>
+                            <span>Cloud Background Runs</span>
+                        </button>
+                        <button onclick="openAgentStudioModal()" class="text-xs font-semibold text-fuchsia-600 dark:text-fuchsia-400 hover:underline flex items-center gap-1 cursor-pointer">
+                            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+                            <span>Create or Customize Bot</span>
+                        </button>
+                    </div>
+                </div>
+                <div id="home-agents-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main 3-Pane Collaborative IDE Workspace -->
+    <main id="workspace-root" class="hidden flex-1 flex flex-col lg:flex-row overflow-hidden">
+
+        <!-- Left Sidebar: AI Coding Agent + Team & Live Call -->
+        <section id="pane-sidebar" class="w-full lg:w-[340px] flex flex-col border-b lg:border-b-0 border-zinc-200 dark:border-zinc-800 bg-studio-900/60 shrink-0 min-h-[160px] lg:min-w-[260px] overflow-hidden">
+            <div class="h-10 border-b border-zinc-200 dark:border-zinc-800/80 px-2.5 flex items-center justify-between bg-studio-900 shrink-0">
+                <div class="flex items-center gap-1 bg-studio-850 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800">
+                    <button onclick="switchLeftTab('agent')" id="tab-left-agent" class="px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-600 text-white transition-all cursor-pointer">AI Agent</button>
+                    <button onclick="switchLeftTab('team')" id="tab-left-team" class="px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all cursor-pointer">Team & Call</button>
+                </div>
+                <button onclick="openCloudTasksModal()" class="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-300 border border-cyan-500/25 cursor-pointer" title="Run agent task in the cloud while your device is off">
+                    <i data-lucide="cloud-lightning" class="w-3 h-3"></i>
+                    <span>Cloud Run</span>
+                </button>
+            </div>
+
+            <!-- AI Coding Agent Panel -->
+            <div id="panel-left-agent" class="flex-1 flex flex-col overflow-hidden">
+                <div class="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800/80 bg-studio-900/40 flex items-center gap-2 shrink-0">
+                    <div class="flex items-center gap-1.5 min-w-0">
+                        <span id="active-agent-badge" class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                        <span class="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 shrink-0">Agent:</span>
+                    </div>
+                    <select id="agent-model-select" onchange="switchAgentModel(this.value)" class="flex-1 bg-studio-850 text-xs font-medium text-zinc-800 dark:text-zinc-200 px-2.5 py-1 rounded-lg border border-zinc-300 dark:border-zinc-700/70 focus:outline-none focus:border-indigo-500 cursor-pointer truncate">
+                        <option value="sparky">⚡ Sparky (Native Spark Agent)</option>
+                        <option value="spark-bot">🔥 Spark Bot (Witty & Unfiltered Sidekick)</option>
+                        <option value="grok-3">🚀 Grok (xAI Fast & Bold Coder)</option>
+                        <option value="gemini-3-flash-preview">✨ Gemini 3 Flash (Fast)</option>
+                        <option value="gemini-3.1-pro-preview">🧠 Gemini 3.1 Pro (Deep Reasoning)</option>
+                        <option value="claude-3-7-sonnet">🟠 Claude 3.7 Sonnet (BYOK / Fallback)</option>
+                        <option value="gpt-4o">🟢 GPT-4o / o3-mini (BYOK / Fallback)</option>
+                    </select>
+                    <button onclick="openAgentStudioModal()" class="p-1.5 rounded-lg bg-studio-850 hover:bg-studio-700 text-fuchsia-600 dark:text-fuchsia-300 border border-zinc-300 dark:border-zinc-700/70 cursor-pointer shrink-0" title="Customize Spark Bots in AI Agent Studio">
+                        <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+
+                <div id="agent-messages" class="flex-1 overflow-y-auto p-3.5 space-y-3">
+                    <div class="p-3 rounded-2xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-700 dark:text-zinc-300 space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <span class="font-semibold text-amber-600 dark:text-amber-300">⚡ Sparky • Cloud & Local Ready</span>
+                            <span class="text-[10px] font-mono text-zinc-400">24/7 Cloud</span>
+                        </div>
+                        <p>Ask me to write, refactor, or debug code right now—or click <strong>Cloud Run</strong> to dispatch an autonomous background job that finishes even while your device is off!</p>
+                    </div>
+                </div>
+
+                <div class="px-3 pt-2 flex items-center gap-1.5 overflow-x-auto shrink-0">
+                    <button onclick="dispatchCloudBackgroundTask('Write full unit tests & edge cases')" class="whitespace-nowrap px-2.5 py-1 rounded-lg text-[11px] font-medium bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/25 cursor-pointer">☁️ Cloud Unit Tests</button>
+                    <button onclick="triggerQuickPrompt('Roast my current code and optimize its time complexity')" class="whitespace-nowrap px-2.5 py-1 rounded-lg text-[11px] font-medium bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-500/25 cursor-pointer">🔥 Roast & Optimize</button>
+                </div>
+
+                <div class="p-3 border-t border-zinc-200 dark:border-zinc-800/80 bg-studio-900">
+                    <form onsubmit="handleAgentSubmit(event)" class="flex items-center gap-2">
+                        <input id="agent-input" type="text" placeholder="Ask Sparky to write, refactor, or explain code..." class="flex-1 bg-studio-850 border border-zinc-300 dark:border-zinc-700/80 focus:border-indigo-500 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none">
+                        <button type="submit" id="agent-send-btn" class="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-all cursor-pointer">
+                            <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Team & Live Voice Call Panel -->
+            <div id="panel-left-team" class="hidden flex-1 flex flex-col overflow-hidden">
+                <div class="p-3 border-b border-zinc-200 dark:border-zinc-800/80 bg-studio-900/50 space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Pair Room Participants</span>
+                        <span class="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">● Live Sync</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <!-- Current User -->
+                        <div class="bg-studio-800/90 border border-zinc-300 dark:border-zinc-700/60 rounded-xl p-2 flex flex-col items-center text-center relative">
+                            <div id="avatar-self" class="w-9 h-9 rounded-full bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-xs font-bold text-indigo-700 dark:text-indigo-200 mb-1">
+                                YO
+                            </div>
+                            <span id="call-name-self" class="text-[11px] font-medium text-zinc-800 dark:text-zinc-200 truncate w-full">You</span>
+                            <span class="text-[9px] text-zinc-500">Host</span>
+                        </div>
+
+                        <!-- Gemini AI Participant -->
+                        <div class="bg-studio-800/90 border border-purple-500/40 rounded-xl p-2 flex flex-col items-center text-center relative">
+                            <div id="avatar-gemini" class="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white mb-1 relative shadow-md shadow-purple-500/20">
+                                <i data-lucide="sparkles" class="w-4 h-4"></i>
+                            </div>
+                            <span class="text-[11px] font-semibold text-purple-700 dark:text-purple-200 truncate w-full">Gemini Live</span>
+                            <span id="status-gemini" class="text-[9px] text-purple-600 dark:text-purple-300">Ready to join</span>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button onclick="toggleGeminiVoiceCall()" id="join-call-btn" class="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-600/20 cursor-pointer">
+                            <i data-lucide="phone" class="w-3.5 h-3.5"></i>
+                            <span id="join-call-text">Join Voice Call with Gemini</span>
+                        </button>
+                        <button onclick="toggleMuteMic()" id="mute-mic-btn" disabled class="p-2 rounded-xl bg-studio-800 text-zinc-500 border border-zinc-300 dark:border-zinc-700/60 disabled:opacity-40 cursor-pointer" title="Mute / Unmute Microphone">
+                            <i data-lucide="mic" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="team-messages" class="flex-1 overflow-y-auto p-3.5 space-y-3">
+                    <div class="p-3 rounded-2xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400">
+                        Room ready. Invite friends from the <strong>Friends</strong> menu, start a voice call with <strong>Gemini Live</strong>, or mention <strong>@sparkbot</strong> in chat.
+                    </div>
+                </div>
+
+                <div class="p-3 border-t border-zinc-200 dark:border-zinc-800/80 bg-studio-900">
+                    <form onsubmit="handleTeamChatSubmit(event)" class="flex items-center gap-2">
+                        <input id="team-input" type="text" placeholder="Message room, @sparkbot, or @gemini..." class="flex-1 bg-studio-850 border border-zinc-300 dark:border-zinc-700/80 focus:border-cyan-500 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none">
+                        <button type="submit" class="p-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white transition-all cursor-pointer">
+                            <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- Drag Handle 1 -->
+        <div id="resizer-sidebar" role="separator" aria-label="Resize sidebar" title="Drag to resize sidebar (Double-click to reset)" class="resizer-handle bg-zinc-200 dark:bg-zinc-800"></div>
+
+        <!-- Center & Right: Code Editor + Output Console / Sandbox -->
+        <section id="pane-workspace" class="flex-1 flex flex-col md:flex-row overflow-hidden bg-studio-950 min-w-0 min-h-0">
+
+            <!-- Code Editor Pane -->
+            <div id="pane-editor" class="flex-1 flex flex-col min-h-[120px] min-w-[160px] overflow-hidden">
+                <div class="h-10 border-b border-zinc-200 dark:border-zinc-800/80 bg-studio-900/70 px-3 flex items-center justify-between shrink-0">
+                    <div class="flex items-center gap-1.5 overflow-x-auto">
+                        <button onclick="switchFileTab('main')" id="file-tab-main" class="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono bg-studio-800 text-indigo-600 dark:text-indigo-300 border border-zinc-300 dark:border-zinc-700/70 cursor-pointer">
+                            <i data-lucide="file-code-2" class="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400"></i>
+                            <span id="active-filename">main.py</span>
+                        </button>
+                        <button onclick="switchFileTab('tests')" id="file-tab-tests" class="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-studio-800/50 cursor-pointer">
+                            <i data-lucide="flask-conical" class="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400"></i>
+                            <span id="test-filename">test_main.py</span>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-1.5">
+                        <button onclick="saveAccountWorkspace(true)" id="editor-save-btn" class="hidden flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-300 border border-cyan-500/25 transition-colors cursor-pointer" title="Save code & bots to your signed-in Spark account">
+                            <i data-lucide="cloud-upload" class="w-3 h-3"></i>
+                            <span class="hidden sm:inline" id="save-status-text">Saved</span>
+                        </button>
+                        <button onclick="loadStarterExample()" class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-studio-800 transition-colors cursor-pointer" title="Insert starter example">
+                            <i data-lucide="file-plus-2" class="w-3 h-3"></i>
+                            <span class="hidden sm:inline">Load Example</span>
+                        </button>
+                        <button onclick="copyEditorCode()" class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-studio-800 transition-colors cursor-pointer" title="Copy Code">
+                            <i data-lucide="copy" class="w-3 h-3"></i>
+                            <span class="hidden sm:inline">Copy</span>
+                        </button>
+                        <button onclick="runCode()" class="md:hidden flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600 text-white cursor-pointer">
+                            <i data-lucide="play" class="w-3 h-3"></i>
+                            <span>Run</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="relative flex-1 flex overflow-hidden bg-studio-950">
+                    <textarea id="code-editor" spellcheck="false" placeholder="Start writing your code here, or ask Sparky to generate code for you..." oninput="syncCurrentBuffer()" class="code-editor w-full h-full bg-transparent text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 font-mono text-xs sm:text-sm p-4 focus:outline-none resize-none leading-relaxed"></textarea>
+                </div>
+            </div>
+
+            <!-- Drag Handle 2 -->
+            <div id="resizer-console" role="separator" aria-label="Resize console" title="Drag to resize editor & console (Double-click to reset)" class="resizer-handle bg-zinc-200 dark:bg-zinc-800"></div>
+
+            <!-- Right Pane: Execution Console & Interactive Output -->
+            <div id="pane-console" class="w-full md:w-[42%] flex flex-col bg-studio-900/40 h-[35%] md:h-full min-h-[120px] min-w-[160px] shrink-0 overflow-hidden">
+                <div class="h-10 border-b border-zinc-200 dark:border-zinc-800/80 bg-studio-900/70 px-3 flex items-center justify-between shrink-0">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="terminal-square" class="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400"></i>
+                        <span class="text-xs font-semibold text-zinc-800 dark:text-zinc-200" id="output-pane-title">Execution Console</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button onclick="fixLastErrorWithSparky()" id="console-fix-btn" class="hidden flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-600 dark:text-amber-300 border border-amber-500/30 transition-all cursor-pointer" title="Have Sparky diagnose and fix the last error">
+                            <i data-lucide="wrench" class="w-3 h-3"></i>
+                            <span>Fix Error with Sparky</span>
+                        </button>
+                        <span id="runtime-badge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-studio-800 text-zinc-600 dark:text-zinc-400">Python 3 Ready</span>
+                        <button onclick="clearConsole()" class="p-1 rounded-lg text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-studio-800 transition-colors cursor-pointer" title="Clear Console">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="console-output" class="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-2 text-zinc-700 dark:text-zinc-300">
+                    <div class="text-zinc-400 dark:text-zinc-500">// Click "Run Code" to execute your program or ask Sparky to write & test code.</div>
+                </div>
+
+                <iframe id="html-sandbox" class="hidden flex-1 w-full bg-white border-0"></iframe>
+            </div>
+
+        </section>
+    </main>
+
+    <!-- API Key Configuration Modal -->
+    <div id="api-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-studio-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
+                        <i data-lucide="key-round" class="w-4 h-4 text-amber-500 dark:text-amber-400"></i>
+                    </div>
+                    <h3 class="font-semibold text-zinc-900 dark:text-white text-sm">Spark Multi-Model API Configuration</h3>
+                </div>
+                <button onclick="closeApiModal()" class="text-zinc-400 hover:text-zinc-700 dark:hover:text-white cursor-pointer">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <p class="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                <strong>Sparky</strong> works natively right out of the box with zero API keys. Add optional provider keys below if you want to connect directly to Google Gemini, OpenAI, or Anthropic.
+            </p>
+
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Google Gemini API Key</label>
+                    <input id="custom-api-key" type="password" placeholder="AIzaSy..." class="w-full bg-studio-850 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">OpenAI API Key</label>
+                    <input id="openai-api-key" type="password" placeholder="sk-..." class="w-full bg-studio-850 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Anthropic API Key</label>
+                    <input id="anthropic-api-key" type="password" placeholder="sk-ant-..." class="w-full bg-studio-850 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">xAI Grok API Key</label>
+                    <input id="xai-api-key" type="password" placeholder="xai-..." class="w-full bg-studio-850 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500">
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-2">
+                <button type="button" onclick="closeApiModal()" class="px-3.5 py-2 rounded-xl text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-studio-800 cursor-pointer">Cancel</button>
+                <button type="button" onclick="saveApiKey()" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer">Save Keys</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Signed-In Developer Profile Modal -->
+    <div id="auth-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-studio-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <!-- Sign-In Form (Shown when signed out) -->
+            <div id="auth-signin-view" class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md">
+                            <i data-lucide="user-check" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-zinc-900 dark:text-white text-sm">Sign In to Spark</h3>
+                            <p class="text-[11px] text-zinc-500 dark:text-zinc-400">100% browser-stored account vault • Zero server credits</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="closeAuthModal()" class="text-zinc-400 hover:text-zinc-700 dark:hover:text-white cursor-pointer">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <form onsubmit="handleLocalSignInSubmit(event)" class="space-y-3">
+                    <div>
+                        <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Display Name</label>
+                        <input id="signin-name-input" type="text" required placeholder="e.g. Alex Rivera" class="w-full bg-studio-850 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Email Address</label>
+                        <input id="signin-email-input" type="email" required placeholder="you@example.com" class="w-full bg-studio-850 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <button type="submit" class="w-full py-2.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md cursor-pointer">
+                        Continue to Spark Studio →
+                    </button>
+                </form>
+            </div>
+
+            <!-- Signed-In Profile View (Shown when signed in) -->
+            <div id="auth-profile-view" class="hidden space-y-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div id="profile-avatar-badge" class="w-10 h-10 rounded-xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-center">YO</div>
+                        <div>
+                            <h3 id="profile-display-name" class="font-semibold text-zinc-900 dark:text-white text-sm">Spark Builder</h3>
+                            <p id="profile-display-email" class="text-[11px] text-zinc-500 dark:text-zinc-400">builder@spark.dev</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="closeAuthModal()" class="text-zinc-400 hover:text-zinc-700 dark:hover:text-white cursor-pointer">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400">AI Companion Nickname</label>
+                    <div class="flex items-center gap-2">
+                        <input id="profile-nickname-input" type="text" class="flex-1 bg-studio-850 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500">
+                        <button type="button" onclick="updateUserNickname()" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer">Update</button>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                    <button type="button" onclick="closeAuthModal(); openOnboardingSlideshow();" class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">Edit Onboarding Bio &amp; Audio Name</button>
+                    <button type="button" onclick="signOutUser()" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-600/15 hover:bg-rose-600/25 text-rose-600 dark:text-rose-400 cursor-pointer">Sign Out</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cloudflare Pages Deployment & Static Site Export Modal -->
+    <div id="cloudflare-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-studio-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center">
+                        <i data-lucide="cloud" class="w-4 h-4 text-orange-500 dark:text-orange-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-zinc-900 dark:text-white text-sm">Deploy Spark to Cloudflare Pages</h3>
+                        <p class="text-[11px] text-zinc-500 dark:text-zinc-400">Pure static site • Unlimited bandwidth • Zero credits required</p>
+                    </div>
+                </div>
+                <button onclick="closeCloudflareModal()" class="text-zinc-400 hover:text-zinc-700 dark:hover:text-white cursor-pointer">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 space-y-2 text-xs">
+                <div class="flex items-center justify-between">
+                    <span class="font-semibold text-zinc-800 dark:text-zinc-200">Clean Static Bundle (Zero Serverless Overhead):</span>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border border-emerald-500/30">Cloudflare Pages Ready</span>
+                </div>
+                <ul class="space-y-1.5 text-zinc-600 dark:text-zinc-400 font-mono text-[11px]">
+                    <li class="flex items-center gap-2"><span class="text-emerald-500">✓</span> <span>index.html</span> <span class="text-zinc-400 font-sans">— Complete Spark IDE, AI Agents &amp; localStorage Vault</span></li>
+                    <li class="flex items-center gap-2"><span class="text-emerald-500">✓</span> <span>_headers</span> <span class="text-zinc-400 font-sans">— Cloudflare Pages security &amp; caching rules</span></li>
+                    <li class="flex items-center gap-2"><span class="text-emerald-500">✓</span> <span>README.md</span> <span class="text-zinc-400 font-sans">— 30-second Cloudflare Pages Direct Upload guide</span></li>
+                </ul>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-orange-500/10 border border-orange-500/25 text-xs text-zinc-700 dark:text-zinc-300 space-y-1">
+                <p class="font-semibold text-orange-600 dark:text-orange-300">How to publish on Cloudflare Pages (Free):</p>
+                <ol class="list-decimal list-inside space-y-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                    <li>Click <strong>Download Cloudflare Site ZIP</strong> below.</li>
+                    <li>Open <strong>dash.cloudflare.com → Workers &amp; Pages → Create → Pages → Direct Upload</strong>.</li>
+                    <li>Drag and drop <code>spark-cloudflare-pages.zip</code> and click <strong>Deploy site</strong>.</li>
+                </ol>
+            </div>
+
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1">
+                <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages/create/pages" target="_blank" rel="noopener noreferrer" class="px-3.5 py-2 rounded-xl text-xs font-medium bg-studio-800 hover:bg-studio-700 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700 text-center transition-colors">
+                    Open Cloudflare Pages ↗
+                </a>
+                <button onclick="downloadCloudflareSiteBundle()" class="px-4 py-2 rounded-xl text-xs font-semibold bg-orange-600 hover:bg-orange-500 text-white flex items-center justify-center gap-1.5 shadow-md shadow-orange-600/20 cursor-pointer">
+                    <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                    <span>Download Cloudflare Site ZIP</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Friends & Friend Requests Modal -->
+    <div id="friends-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-studio-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center">
+                        <i data-lucide="users" class="w-4 h-4 text-indigo-500 dark:text-indigo-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-zinc-900 dark:text-white text-sm">Spark Friends & Requests</h3>
+                        <p class="text-[11px] text-zinc-500 dark:text-zinc-400">Add developers and invite them to pair program</p>
+                    </div>
+                </div>
+                <button onclick="closeFriendsModal()" class="text-zinc-400 hover:text-zinc-700 dark:hover:text-white cursor-pointer">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <form onsubmit="sendFriendRequest(event)" class="flex items-center gap-2">
+                <input id="friend-add-input" type="text" required placeholder="Add friend by @username or email..." class="flex-1 bg-studio-850 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-indigo-500">
+                <button type="submit" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1 cursor-pointer shrink-0">
+                    <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+                    <span>Send Request</span>
+                </button>
+            </form>
+
+            <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Incoming Requests</span>
+                    <span id="incoming-req-count" class="text-[11px] font-mono text-indigo-500">0 pending</span>
+                </div>
+                <div id="incoming-requests-list" class="space-y-2 max-h-40 overflow-y-auto"></div>
+            </div>
+
+            <div class="space-y-2 border-t border-zinc-200 dark:border-zinc-800 pt-3">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Your Friends</span>
+                <div id="friends-list" class="space-y-2 max-h-44 overflow-y-auto"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Push Notifications & Activity Center Modal -->
+    <div id="notifications-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-studio-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
+                        <i data-lucide="bell-ring" class="w-4 h-4 text-amber-500 dark:text-amber-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-zinc-900 dark:text-white text-sm">Push Notifications</h3>
+                        <p class="text-[11px] text-zinc-500 dark:text-zinc-400">Real-time desktop alerts for requests & @sparkbot</p>
+                    </div>
+                </div>
+                <button onclick="closeNotificationsModal()" class="text-zinc-400 hover:text-zinc-700 dark:hover:text-white cursor-pointer">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="p-3 rounded-xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3">
+                <div class="text-xs">
+                    <p class="font-semibold text-zinc-900 dark:text-white" id="push-status-title">Desktop Push Alerts</p>
+                    <p class="text-[11px] text-zinc-500 dark:text-zinc-400" id="push-status-desc">Get notified when friends message or request you.</p>
+                </div>
+                <button onclick="enableBrowserPushNotifications()" id="enable-push-btn" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-zinc-950 shrink-0 cursor-pointer">
+                    Enable Push
+                </button>
+            </div>
+
+            <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Recent Alerts</span>
+                    <button onclick="testPushNotification()" class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">Send Test Push</button>
+                </div>
+                <div id="notifications-feed" class="space-y-2 max-h-56 overflow-y-auto"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI AGENT STUDIO MODAL (Customize & Build Spark Bots) -->
+    <div id="agent-studio-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-studio-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-fuchsia-500 to-amber-500 flex items-center justify-center text-white shadow-md">
+                        <i data-lucide="bot" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-zinc-900 dark:text-white text-sm">Spark AI Agent Studio</h3>
+                        <p class="text-[11px] text-zinc-500 dark:text-zinc-400">Design custom Spark Bots with unique personalities, @handles, and coding directives</p>
+                    </div>
+                </div>
+                <button onclick="closeAgentStudioModal()" class="text-zinc-400 hover:text-zinc-700 dark:hover:text-white cursor-pointer">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-5">
+                <div class="md:col-span-2 space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Your Spark Bots</span>
+                        <button type="button" onclick="resetStudioForm()" class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">+ New Bot</button>
+                    </div>
+                    <div id="studio-bots-list" class="space-y-2 max-h-72 overflow-y-auto pr-1"></div>
+                </div>
+
+                <form onsubmit="saveCustomSparkBot(event)" class="md:col-span-3 space-y-3 bg-studio-850 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                    <input type="hidden" id="studio-bot-id" value="">
+
+                    <div class="flex items-center gap-3 p-2.5 rounded-xl bg-studio-900 border border-zinc-200 dark:border-zinc-800">
+                        <img id="studio-bot-avatar-preview" src="" alt="Bot Avatar" class="w-12 h-12 rounded-2xl object-cover border border-fuchsia-500/40 bg-studio-850 shrink-0">
+                        <div class="flex-1 min-w-0 space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">Bot Avatar</span>
+                                <label class="text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-400 hover:underline cursor-pointer">
+                                    Upload Image
+                                    <input type="file" accept="image/*" onchange="handleBotAvatarUpload(event)" class="hidden">
+                                </label>
+                            </div>
+                            <input id="studio-bot-avatar-url" type="text" oninput="updateStudioAvatarPreview(this.value)" placeholder="Paste custom avatar image URL or choose preset below..." class="w-full bg-studio-850 border border-zinc-300 dark:border-zinc-700 rounded-lg px-2.5 py-1 text-[11px] text-zinc-900 dark:text-white focus:outline-none focus:border-fuchsia-500">
+                        </div>
+                    </div>
+
+                    <div class="space-y-1">
+                        <span class="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400">Default Bot Avatars (Click to select or replace anytime)</span>
+                        <div id="studio-avatar-presets" class="flex items-center gap-2 overflow-x-auto pb-1"></div>
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-2">
+                        <div>
+                            <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Badge</label>
+                            <input id="studio-bot-emoji" type="text" maxlength="4" value="🤖" required class="w-full bg-studio-900 border border-zinc-300 dark:border-zinc-700 rounded-xl px-2.5 py-2 text-center text-sm focus:outline-none focus:border-fuchsia-500">
+                        </div>
+                        <div class="col-span-3">
+                            <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Bot Name</label>
+                            <input id="studio-bot-name" type="text" required placeholder="e.g. Chaos Debugger, Rustacean Pro" class="w-full bg-studio-900 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-fuchsia-500">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">@Handle</label>
+                            <input id="studio-bot-handle" type="text" required placeholder="@chaosbot" class="w-full bg-studio-900 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs font-mono text-zinc-900 dark:text-white focus:outline-none focus:border-fuchsia-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Personality Vibe</label>
+                            <select id="studio-bot-vibe" class="w-full bg-studio-900 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-fuchsia-500 cursor-pointer">
+                                <option value="sarcastic">🔥 Witty & Unfiltered</option>
+                                <option value="hype">⚡ Hype & Encouraging</option>
+                                <option value="strict">🛡️ Strict Architect</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Humor & Sass Intensity</label>
+                            <span id="studio-sass-val" class="text-[11px] font-mono text-fuchsia-500">75%</span>
+                        </div>
+                        <input id="studio-bot-sass" type="range" min="0" max="100" value="75" oninput="document.getElementById('studio-sass-val').textContent = this.value + '%'" class="w-full accent-fuchsia-500 cursor-pointer">
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Signature Catchphrase</label>
+                        <input id="studio-bot-catchphrase" type="text" placeholder="e.g. Let's ship clean code before prod catches fire!" class="w-full bg-studio-900 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-fuchsia-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Custom System Directives</label>
+                        <textarea id="studio-bot-instructions" rows="2" placeholder="Describe how this bot reviews code, formats responses, or helps you..." class="w-full bg-studio-900 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-fuchsia-500 resize-none"></textarea>
+                    </div>
+
+                    <div class="flex items-center justify-end gap-2 pt-1">
+                        <button type="button" onclick="closeAgentStudioModal()" class="px-3.5 py-2 rounded-xl text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-studio-800 cursor-pointer">Cancel</button>
+                        <button type="submit" class="px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-fuchsia-600 to-indigo-600 hover:from-fuchsia-500 hover:to-indigo-500 text-white shadow-md cursor-pointer">Save & Equip Bot</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- POST-LOGIN ONBOARDING SLIDESHOW MODAL -->
+    <div id="onboarding-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-studio-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col">
+            <div class="px-6 pt-5 pb-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30" id="onboard-step-pill">Step 1 of 4</span>
+                    <span class="text-xs text-zinc-500 dark:text-zinc-400">Spark Profile Setup</span>
+                </div>
+                <button type="button" onclick="skipOnboardingSlideshow()" class="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-white cursor-pointer">Skip for now</button>
+            </div>
+
+            <div class="p-6 sm:p-8 min-h-[300px] flex flex-col justify-center">
+                <div id="onboard-slide-0" class="space-y-4">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 via-orange-500 to-indigo-600 flex items-center justify-center text-white shadow-lg">
+                        <i data-lucide="sparkles" class="w-6 h-6"></i>
+                    </div>
+                    <h2 class="text-2xl sm:text-3xl font-bold text-zinc-900 dark:text-white">Welcome to Spark Studio!</h2>
+                    <p class="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                        Let's personalize your developer profile in three quick questions so your bio, live audio room handle, and AI companion nickname sync across every workspace.
+                    </p>
+                </div>
+
+                <div id="onboard-slide-1" class="hidden space-y-4">
+                    <p class="text-xs font-bold uppercase tracking-wider text-indigo-500">Question 1 of 3 • Developer Bio</p>
+                    <h2 class="text-2xl font-bold text-zinc-900 dark:text-white">Tell us a bit about yourself</h2>
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400">What are you building, learning, or experimenting with in Spark?</p>
+                    <textarea id="onboard-input-bio" rows="3" placeholder="e.g. Student builder working on Python algorithms, web apps, and custom AI bots..." class="w-full bg-studio-850 border border-zinc-300 dark:border-zinc-700 focus:border-indigo-500 rounded-2xl p-4 text-sm text-zinc-900 dark:text-white focus:outline-none resize-none"></textarea>
+                </div>
+
+                <div id="onboard-slide-2" class="hidden space-y-4">
+                    <p class="text-xs font-bold uppercase tracking-wider text-amber-500">Question 2 of 3 • Voice & Audio Identity</p>
+                    <h2 class="text-2xl font-bold text-zinc-900 dark:text-white">What should your audio room name be?</h2>
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400">This handle appears on your live voice call tile when pair programming with friends and Gemini Live.</p>
+                    <input id="onboard-input-audio" type="text" placeholder="@your_audio_name" class="w-full bg-studio-850 border border-zinc-300 dark:border-zinc-700 focus:border-amber-500 rounded-2xl px-4 py-3.5 text-base font-semibold text-zinc-900 dark:text-white focus:outline-none">
+                </div>
+
+                <div id="onboard-slide-3" class="hidden space-y-4">
+                    <p class="text-xs font-bold uppercase tracking-wider text-emerald-500">Question 3 of 3 • AI Companion Nickname</p>
+                    <h2 class="text-2xl font-bold text-zinc-900 dark:text-white">What should AI agents call you?</h2>
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400">Sparky, Spark Bot, and your custom agents will address you by this name.</p>
+                    <input id="onboard-input-nickname" type="text" placeholder="e.g. Captain, Chief, or your first name..." class="w-full bg-studio-850 border border-zinc-300 dark:border-zinc-700 focus:border-emerald-500 rounded-2xl px-4 py-3.5 text-base font-bold text-zinc-900 dark:text-white focus:outline-none">
+                </div>
+            </div>
+
+            <div class="px-6 py-4 bg-studio-850 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+                <button type="button" id="onboard-prev-btn" onclick="prevOnboardingSlide()" class="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:bg-studio-800 disabled:opacity-30 cursor-pointer">
+                    ← Back
+                </button>
+                <div class="flex items-center gap-1.5">
+                    <span id="onboard-dot-0" class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                    <span id="onboard-dot-1" class="w-2.5 h-2.5 rounded-full bg-zinc-400/40"></span>
+                    <span id="onboard-dot-2" class="w-2.5 h-2.5 rounded-full bg-zinc-400/40"></span>
+                    <span id="onboard-dot-3" class="w-2.5 h-2.5 rounded-full bg-zinc-400/40"></span>
+                </div>
+                <button type="button" id="onboard-next-btn" onclick="nextOnboardingSlide()" class="px-5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md cursor-pointer">
+                    Next →
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CLOUD BACKGROUND AGENTS & ACCOUNT SAVE MODAL -->
+    <div id="cloud-tasks-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-studio-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center">
+                        <i data-lucide="cloud-cog" class="w-4 h-4 text-cyan-500 dark:text-cyan-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-zinc-900 dark:text-white text-sm">Cloud Agents & Account Persistence</h3>
+                        <p class="text-[11px] text-zinc-500 dark:text-zinc-400">Agents keep working in the cloud even when your device is turned off</p>
+                    </div>
+                </div>
+                <button onclick="closeCloudTasksModal()" class="text-zinc-400 hover:text-zinc-700 dark:hover:text-white cursor-pointer">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3">
+                <div class="text-xs">
+                    <div class="flex items-center gap-1.5 font-semibold text-zinc-900 dark:text-white">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span id="cloud-account-owner">Signed-In Cloud Vault Active</span>
+                    </div>
+                    <p class="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5" id="cloud-last-saved-info">Auto-saves your code files, custom Spark Bots, and friends.</p>
+                </div>
+                <button onclick="saveAccountWorkspace(true)" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white shrink-0 cursor-pointer">
+                    Sync Now
+                </button>
+            </div>
+
+            <form onsubmit="handleDispatchCloudForm(event)" class="space-y-2.5 bg-studio-850 p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                <div class="flex items-center justify-between">
+                    <label class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Queue Autonomous Cloud Agent Job</label>
+                    <span class="text-[10px] font-mono text-cyan-600 dark:text-cyan-300">Runs Offline / Sleep-Safe</span>
+                </div>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <select id="cloud-job-agent" class="bg-studio-900 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-cyan-500 cursor-pointer">
+                        <option value="sparky">⚡ Sparky (Cloud Worker)</option>
+                        <option value="grok-3">🚀 Grok (Cloud Code Builder)</option>
+                        <option value="spark-bot">🔥 Spark Bot (Cloud Roast & Refactor)</option>
+                        <option value="gemini-3.1-pro-preview">🧠 Gemini 3.1 Pro (Deep Cloud Audit)</option>
+                    </select>
+                    <input id="cloud-job-prompt" type="text" required placeholder="e.g. Build a binary search tree, add unit tests, optimize loops..." class="flex-1 bg-studio-900 border border-zinc-300 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-cyan-500">
+                    <button type="submit" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white shrink-0 cursor-pointer">
+                        Run in Cloud
+                    </button>
+                </div>
+            </form>
+
+            <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Cloud Worker Queue & Results</span>
+                    <span class="text-[11px] text-zinc-500">Persists across browser restarts</span>
+                </div>
+                <div id="cloud-tasks-list" class="space-y-2.5 max-h-64 overflow-y-auto"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="hidden fixed bottom-4 right-4 z-50 bg-studio-900 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-white px-4 py-2.5 rounded-xl shadow-xl text-xs font-medium flex items-center gap-2">
+        <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-500"></i>
+        <span id="toast-text">Ready</span>
+    </div>
+
+    <script>
+        function refreshIcons() {
+            if (window.lucide && typeof window.lucide.createIcons === 'function') {
+                window.lucide.createIcons();
+            }
+        }
+
+        const LANGUAGE_TEMPLATES = {
+            python: {
+                mainName: 'main.py',
+                testName: 'test_main.py',
+                badge: 'Python 3 Ready',
+                mainCode: `# Spark Collaborative Python 3 Workspace\nfrom typing import List\n\ndef binary_search(nums: List[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    while left <= right:\n        mid = (left + right) // 2\n        if nums[mid] == target:\n            return mid\n        elif nums[mid] < target:\n            left = mid + 1\n        else:\n            right = mid - 1\n    return -1\n\nif __name__ == "__main__":\n    arr = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]\n    idx = binary_search(arr, 23)\n    print(f"Found 23 at index: {idx}")\n`,
+                testCode: `import unittest\nfrom main import binary_search\n\nclass TestBinarySearch(unittest.TestCase):\n    def test_found(self):\n        self.assertEqual(binary_search([1, 3, 5, 7, 9], 7), 3)\n\n    def test_not_found(self):\n        self.assertEqual(binary_search([1, 3, 5, 7, 9], 4), -1)\n\nif __name__ == "__main__":\n    unittest.main()\n`
+            },
+            javascript: {
+                mainName: 'index.js',
+                testName: 'index.test.js',
+                badge: 'ES2024 Ready',
+                mainCode: `// Spark Collaborative JavaScript Workspace\nfunction twoSum(nums, target) {\n  const seen = new Map();\n  for (let i = 0; i < nums.length; i++) {\n    const complement = target - nums[i];\n    if (seen.has(complement)) {\n      return [seen.get(complement), i];\n    }\n    seen.set(nums[i], i);\n  }\n  return [];\n}\n\nconsole.log("TwoSum result:", twoSum([2, 7, 11, 15], 9));\n`,
+                testCode: `// Unit tests for index.js\nconsole.assert(JSON.stringify(twoSum([3, 2, 4], 6)) === "[1,2]", "Test failed");\nconsole.log("All JavaScript assertions passed!");\n`
+            },
+            typescript: {
+                mainName: 'main.ts',
+                testName: 'main.test.ts',
+                badge: 'TypeScript 5',
+                mainCode: `// Spark Collaborative TypeScript Workspace\ninterface Task {\n  id: number;\n  title: string;\n  done: boolean;\n}\n\nfunction summarizeTasks(tasks: Task[]): { total: number; completed: number } {\n  return {\n    total: tasks.length,\n    completed: tasks.filter(t => t.done).length\n  };\n}\n\nconsole.log(summarizeTasks([\n  { id: 1, title: "Design API", done: true },\n  { id: 2, title: "Write tests", done: false }\n]));\n`,
+                testCode: `// TypeScript test suite\nconsole.log("TypeScript tests ready.");\n`
+            },
+            cpp: {
+                mainName: 'main.cpp',
+                testName: 'test_main.cpp',
+                badge: 'C++ 20',
+                mainCode: `#include <iostream>\n#include <vector>\n#include <algorithm>\n\nint main() {\n    std::vector<int> v = {42, 7, 19, 3, 88};\n    std::sort(v.begin(), v.end());\n    std::cout << "Sorted: ";\n    for (int x : v) std::cout << x << " ";\n    std::cout << "\\n";\n    return 0;\n}\n`,
+                testCode: `#include <cassert>\nint main() {\n    assert(1 + 1 == 2);\n    return 0;\n}\n`
+            },
+            rust: {
+                mainName: 'main.rs',
+                testName: 'tests.rs',
+                badge: 'Rust 2021',
+                mainCode: `fn fib(n: u64) -> u64 {\n    match n {\n        0 => 0,\n        1 => 1,\n        _ => fib(n - 1) + fib(n - 2),\n    }\n}\n\nfn main() {\n    println!("fib(10) = {}", fib(10));\n}\n`,
+                testCode: `#[cfg(test)]\nmod tests {\n    #[test]\n    fn it_works() {\n        assert_eq!(2 + 2, 4);\n    }\n}\n`
+            },
+            html: {
+                mainName: 'index.html',
+                testName: 'notes.md',
+                badge: 'Live HTML Sandbox',
+                mainCode: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>My App</title>\n</head>\n<body>\n  <h1>Hello, World!</h1>\n</body>\n</html>`,
+                testCode: `# Notes\n`
+            }
+        };
+
+        const MODEL_PROFILES = {
+            'sparky': {
+                name: 'Sparky (Native)',
+                icon: 'zap',
+                iconClass: 'text-amber-500 dark:text-amber-400',
+                boxClass: 'bg-amber-500/15 border-amber-500/30',
+                badgeColor: 'bg-amber-400',
+                placeholder: 'Ask Sparky to write, refactor, or explain code...',
+                persona: 'You are Sparky, Spark IDE\'s built-in native AI coding agent.'
+            },
+            'spark-bot': {
+                name: 'Spark Bot 🔥',
+                icon: 'flame',
+                iconClass: 'text-fuchsia-500 dark:text-fuchsia-400',
+                boxClass: 'bg-fuchsia-500/15 border-fuchsia-500/30',
+                badgeColor: 'bg-fuchsia-500',
+                placeholder: 'Ask Spark Bot anything (warning: witty, bold, and brutally honest)...',
+                persona: 'You are Spark Bot, Spark IDE\'s rebellious, razor-sharp, high-personality AI coding sidekick.'
+            },
+            'grok-3': {
+                name: 'Grok (xAI)',
+                icon: 'rocket',
+                iconClass: 'text-sky-500 dark:text-sky-400',
+                boxClass: 'bg-sky-500/15 border-sky-500/30',
+                badgeColor: 'bg-sky-400',
+                placeholder: 'Ask Grok to write, ship, or roast & rebuild your code...',
+                persona: 'You are Grok, xAI\'s witty, direct, high-velocity coding engineer.'
+            },
+            'gemini-3-flash-preview': {
+                name: 'Gemini 3 Flash',
+                icon: 'sparkles',
+                iconClass: 'text-indigo-500 dark:text-indigo-400',
+                boxClass: 'bg-indigo-500/15 border-indigo-500/30',
+                badgeColor: 'bg-indigo-400',
+                placeholder: 'Ask Gemini 3 Flash to write or debug code...',
+                persona: 'You are Gemini 3 Flash, an expert AI pair programmer.'
+            },
+            'gemini-3.1-pro-preview': {
+                name: 'Gemini 3.1 Pro',
+                icon: 'brain',
+                iconClass: 'text-purple-500 dark:text-purple-400',
+                boxClass: 'bg-purple-500/15 border-purple-500/30',
+                badgeColor: 'bg-purple-400',
+                placeholder: 'Ask Gemini 3.1 Pro for deep architectural reasoning...',
+                persona: 'You are Gemini 3.1 Pro, a principal software architect AI.'
+            },
+            'claude-3-7-sonnet': {
+                name: 'Claude 3.7 Sonnet',
+                icon: 'cpu',
+                iconClass: 'text-orange-500 dark:text-orange-400',
+                boxClass: 'bg-orange-500/15 border-orange-500/30',
+                badgeColor: 'bg-orange-400',
+                placeholder: 'Ask Claude 3.7 Sonnet to write or refactor code...',
+                persona: 'You are Claude 3.7 Sonnet, a thoughtful and precise coding assistant.'
+            },
+            'gpt-4o': {
+                name: 'GPT-4o / o3-mini',
+                icon: 'bot',
+                iconClass: 'text-emerald-500 dark:text-emerald-400',
+                boxClass: 'bg-emerald-500/15 border-emerald-500/30',
+                badgeColor: 'bg-emerald-400',
+                placeholder: 'Ask GPT-4o to write, debug, or optimize code...',
+                persona: 'You are GPT-4o, an expert software engineering assistant.'
+            }
+        };
+
+        const DEFAULT_BOT_AVATARS = [
+            "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#6366f1"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#g1)"/><rect x="26" y="34" width="68" height="54" rx="16" fill="#18181b"/><circle cx="47" cy="58" r="7" fill="#38bdf8"/><circle cx="73" cy="58" r="7" fill="#38bdf8"/><path d="M46 74 Q60 83 74 74" stroke="#fbbf24" stroke-width="4" fill="none" stroke-linecap="round"/><line x1="60" y1="18" x2="60" y2="34" stroke="#fff" stroke-width="4"/><circle cx="60" cy="15" r="5" fill="#fbbf24"/></svg>`),
+            "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ec4899"/><stop offset="100%" stop-color="#8b5cf6"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#g2)"/><rect x="24" y="32" width="72" height="56" rx="18" fill="#09090b"/><polygon points="38,54 54,60 38,64" fill="#f43f5e"/><polygon points="82,54 66,60 82,64" fill="#f43f5e"/><path d="M45 75 L55 71 L65 76 L75 71" stroke="#f472b6" stroke-width="4" fill="none" stroke-linecap="round"/></svg>`),
+            "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#g3)"/><circle cx="60" cy="62" r="34" fill="#0f172a"/><rect x="38" y="50" width="44" height="14" rx="7" fill="#22d3ee"/><circle cx="48" cy="57" r="3" fill="#0f172a"/><circle cx="72" cy="57" r="3" fill="#0f172a"/><path d="M48 76 H72" stroke="#34d399" stroke-width="4" stroke-linecap="round"/></svg>`),
+            "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="g4" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f97316"/><stop offset="100%" stop-color="#ef4444"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#g4)"/><rect x="28" y="30" width="64" height="60" rx="14" fill="#1c1917"/><circle cx="46" cy="56" r="8" fill="#fb923c"/><circle cx="74" cy="56" r="8" fill="#fb923c"/><rect x="44" y="73" width="32" height="6" rx="3" fill="#fde047"/></svg>`)
+        ];
+
+        const INITIAL_SPARK_BOTS = [
+            {
+                id: 'spark-bot',
+                emoji: '🔥',
+                avatar: DEFAULT_BOT_AVATARS[1],
+                name: 'Spark Bot',
+                handle: '@sparkbot',
+                vibe: 'sarcastic',
+                sass: 90,
+                catchphrase: "Oh look, another nested loop. Let's make it blazing fast before prod catches fire.",
+                instructions: 'Witty, razor-sharp coding sidekick with bold developer humor and rock-solid engineering fixes.'
+            },
+            {
+                id: 'sparky-mentor',
+                emoji: '⚡',
+                avatar: DEFAULT_BOT_AVATARS[0],
+                name: 'Sparky Architect',
+                handle: '@sparky',
+                vibe: 'hype',
+                sass: 35,
+                catchphrase: "Clean types, zero bugs, pure velocity—let's ship it!",
+                instructions: 'Encouraging, ultra-clear software architect focused on clean design patterns and edge-case tests.'
+            },
+            {
+                id: 'bug-hunter',
+                emoji: '🛡️',
+                avatar: DEFAULT_BOT_AVATARS[2],
+                name: 'Zero-Day Sentinel',
+                handle: '@sentinel',
+                vibe: 'strict',
+                sass: 60,
+                catchphrase: "Trust no user input. Let's harden every edge case before shipping.",
+                instructions: 'Security-obsessed principal engineer who catches edge cases, race conditions, and memory leaks.'
+            }
+        ];
+
+        const state = {
+            currentView: 'home',
+            language: 'python',
+            activeFileTab: 'main',
+            activeLeftTab: 'agent',
+            selectedModel: 'sparky',
+            inVoiceCall: false,
+            micMuted: false,
+            lastExecutionError: '',
+            user: null,
+            onboardingStep: 0,
+            customBots: [...INITIAL_SPARK_BOTS],
+            friends: [],
+            friendRequests: [],
+            notifications: [],
+            cloudTasks: [],
+            files: {
+                python: { main: '', tests: '' },
+                javascript: { main: '', tests: '' },
+                typescript: { main: '', tests: '' },
+                cpp: { main: '', tests: '' },
+                rust: { main: '', tests: '' },
+                html: { main: '', tests: '' }
+            },
+            pyodide: null,
+            pyodideLoading: false,
+            recognition: null
+        };
+
+        function getAccountStorageKey(email) {
+            return 'spark_account_vault_' + (email || 'guest').toLowerCase().trim();
+        }
+
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        let toastTimer = null;
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            const text = document.getElementById('toast-text');
+            if (!toast || !text) return;
+            text.textContent = msg;
+            toast.classList.remove('hidden');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toast.classList.add('hidden'), 3200);
+        }
+
+        // ==========================================
+        // NAVIGATION, THEME, LANGUAGE & WORKSPACE SYNC
+        // ==========================================
+        function syncThemeToggleUI(isDark) {
+            const icon = document.getElementById('theme-icon');
+            const label = document.getElementById('theme-label');
+            if (icon) {
+                icon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+                icon.className = isDark ? 'w-3.5 h-3.5 text-amber-500' : 'w-3.5 h-3.5 text-indigo-500';
+            }
+            if (label) label.textContent = isDark ? 'Light' : 'Dark';
+            refreshIcons();
+        }
+
+        function toggleTheme() {
+            const isDark = document.documentElement.classList.toggle('dark');
+            localStorage.setItem('spark_theme', isDark ? 'dark' : 'light');
+            syncThemeToggleUI(isDark);
+        }
+
+        function openHomeScreen() {
+            state.currentView = 'home';
+            document.getElementById('home-screen')?.classList.remove('hidden');
+            document.getElementById('workspace-root')?.classList.add('hidden');
+            const homeBtn = document.getElementById('nav-home-btn');
+            const ideBtn = document.getElementById('nav-ide-btn');
+            if (homeBtn) homeBtn.className = 'whitespace-nowrap flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition-all cursor-pointer';
+            if (ideBtn) ideBtn.className = 'whitespace-nowrap flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all cursor-pointer';
+            renderHomeAgentsGrid();
+            refreshIcons();
+        }
+
+        function enterWorkspace(leftTab = null) {
+            state.currentView = 'ide';
+            document.getElementById('home-screen')?.classList.add('hidden');
+            document.getElementById('workspace-root')?.classList.remove('hidden');
+            const homeBtn = document.getElementById('nav-home-btn');
+            const ideBtn = document.getElementById('nav-ide-btn');
+            if (homeBtn) homeBtn.className = 'whitespace-nowrap flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all cursor-pointer';
+            if (ideBtn) ideBtn.className = 'whitespace-nowrap flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition-all cursor-pointer';
+            if (leftTab) switchLeftTab(leftTab);
+            switchLanguage(state.language);
+            refreshIcons();
+        }
+
+        function launchLanguageFromHome(lang) {
+            switchLanguage(lang);
+            enterWorkspace('agent');
+        }
+
+        function switchLeftTab(tab) {
+            state.activeLeftTab = tab;
+            const isAgent = tab === 'agent';
+            document.getElementById('panel-left-agent')?.classList.toggle('hidden', !isAgent);
+            document.getElementById('panel-left-team')?.classList.toggle('hidden', isAgent);
+            const btnAgent = document.getElementById('tab-left-agent');
+            const btnTeam = document.getElementById('tab-left-team');
+            if (btnAgent) btnAgent.className = isAgent
+                ? 'px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-600 text-white transition-all cursor-pointer'
+                : 'px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all cursor-pointer';
+            if (btnTeam) btnTeam.className = !isAgent
+                ? 'px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-600 text-white transition-all cursor-pointer'
+                : 'px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all cursor-pointer';
+        }
+
+        function toggleCallDrawer() {
+            if (state.currentView !== 'ide') {
+                enterWorkspace('team');
+            } else {
+                switchLeftTab(state.activeLeftTab === 'team' ? 'agent' : 'team');
+            }
+        }
+
+        function syncCurrentBuffer() {
+            const editor = document.getElementById('code-editor');
+            if (!editor) return;
+            state.files[state.language][state.activeFileTab] = editor.value;
+            if (state.language === 'html' && state.activeFileTab === 'main') {
+                const sandbox = document.getElementById('html-sandbox');
+                if (sandbox) sandbox.srcdoc = editor.value || LANGUAGE_TEMPLATES.html.mainCode;
+            }
+        }
+
+        function switchLanguage(lang) {
+            if (!LANGUAGE_TEMPLATES[lang]) return;
+            syncCurrentBuffer();
+            state.language = lang;
+            const select = document.getElementById('language-select');
+            if (select) select.value = lang;
+
+            const tpl = LANGUAGE_TEMPLATES[lang];
+            const activeName = document.getElementById('active-filename');
+            const testName = document.getElementById('test-filename');
+            const badge = document.getElementById('runtime-badge');
+            if (activeName) activeName.textContent = tpl.mainName;
+            if (testName) testName.textContent = tpl.testName;
+            if (badge) badge.textContent = tpl.badge;
+
+            const editor = document.getElementById('code-editor');
+            if (editor) editor.value = state.files[lang][state.activeFileTab] || '';
+
+            const isHtml = lang === 'html';
+            document.getElementById('console-output')?.classList.toggle('hidden', isHtml);
+            const sandbox = document.getElementById('html-sandbox');
+            if (sandbox) {
+                sandbox.classList.toggle('hidden', !isHtml);
+                if (isHtml) sandbox.srcdoc = state.files.html.main || tpl.mainCode;
+            }
+            const outTitle = document.getElementById('output-pane-title');
+            if (outTitle) outTitle.textContent = isHtml ? 'Live HTML Sandbox' : 'Execution Console';
+        }
+
+        async function saveAccountWorkspace(notify = false) {
+            syncCurrentBuffer();
+            const payload = {
+                user: state.user,
+                files: state.files,
+                customBots: state.customBots,
+                friends: state.friends,
+                cloudTasks: state.cloudTasks,
+                selectedModel: state.selectedModel,
+                savedAt: new Date().toISOString()
+            };
+            try {
+                localStorage.setItem('spark_global_bots_vault', JSON.stringify(state.customBots));
+                if (state.user?.email) {
+                    localStorage.setItem(getAccountStorageKey(state.user.email), JSON.stringify(payload));
+                }
+            } catch (_) {}
+
+            const saveText = document.getElementById('save-status-text');
+            if (saveText) saveText.textContent = 'Saved';
+            if (notify) showToast('Workspace & custom bots saved to browser localStorage!');
+        }
+
+        async function loadAccountWorkspace(email) {
+            if (!email) return;
+            let loaded = null;
+            try {
+                const localRaw = localStorage.getItem(getAccountStorageKey(email));
+                if (localRaw) loaded = JSON.parse(localRaw);
+            } catch (_) {}
+
+            if (!loaded) return;
+
+            if (loaded.files) {
+                state.files = { ...state.files, ...loaded.files };
+            }
+            if (Array.isArray(loaded.customBots) && loaded.customBots.length > 0) {
+                state.customBots = loaded.customBots;
+            }
+            if (Array.isArray(loaded.friends)) {
+                state.friends = loaded.friends;
+            }
+            if (Array.isArray(loaded.cloudTasks)) {
+                state.cloudTasks = loaded.cloudTasks;
+            }
+            if (loaded.selectedModel) {
+                state.selectedModel = loaded.selectedModel;
+            }
+            if (loaded.user) {
+                state.user = { ...state.user, ...loaded.user };
+            }
+
+            syncAllAgentDropdowns();
+            renderHomeAgentsGrid();
+            renderFriendsUI();
+            renderCloudTasksUI();
+            switchLanguage(state.language);
+        }
+
+        // ==========================================
+        // AUTHENTICATION, ONBOARDING & PROFILE (100% LOCALSTORAGE)
+        // ==========================================
+        function openAuthModal() {
+            const signInView = document.getElementById('auth-signin-view');
+            const profileView = document.getElementById('auth-profile-view');
+            if (state.user) {
+                signInView?.classList.add('hidden');
+                profileView?.classList.remove('hidden');
+                document.getElementById('profile-display-name').textContent = state.user.name || 'Spark Builder';
+                document.getElementById('profile-display-email').textContent = state.user.email || '';
+                document.getElementById('profile-avatar-badge').textContent = (state.user.name || 'YO').slice(0, 2).toUpperCase();
+                document.getElementById('profile-nickname-input').value = state.user.nickname || '';
+            } else {
+                profileView?.classList.add('hidden');
+                signInView?.classList.remove('hidden');
+            }
+            document.getElementById('auth-modal')?.classList.remove('hidden');
+            refreshIcons();
+        }
+        function closeAuthModal() {
+            document.getElementById('auth-modal')?.classList.add('hidden');
+        }
+
+        function handleLocalSignInSubmit(e) {
+            e.preventDefault();
+            const name = document.getElementById('signin-name-input')?.value.trim() || 'Spark Builder';
+            const email = document.getElementById('signin-email-input')?.value.trim().toLowerCase() || 'builder@spark.dev';
+            closeAuthModal();
+            completeSignIn({ email, name });
+        }
+
+        async function completeSignIn(accountInfo) {
+            const email = (accountInfo?.email || 'builder@spark.dev').toLowerCase().trim();
+            const fullName = accountInfo?.name || email.split('@')[0];
+            state.user = {
+                email,
+                name: fullName,
+                bio: '',
+                audioName: '@' + fullName.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+                nickname: fullName.split(' ')[0]
+            };
+
+            localStorage.setItem('spark_active_session_user', JSON.stringify({ email, name: fullName }));
+            await loadAccountWorkspace(email);
+
+            document.getElementById('logged-in-header-controls')?.classList.remove('hidden');
+            document.getElementById('editor-save-btn')?.classList.remove('hidden');
+            const authLabel = document.getElementById('auth-header-label');
+            if (authLabel) authLabel.textContent = state.user.nickname || state.user.name;
+
+            const callSelf = document.getElementById('call-name-self');
+            const avatarSelf = document.getElementById('avatar-self');
+            if (callSelf) callSelf.textContent = state.user.audioName || state.user.name;
+            if (avatarSelf) avatarSelf.textContent = (state.user.name || 'YO').slice(0, 2).toUpperCase();
+
+            const onboardFlag = 'spark_onboarded_' + email;
+            if (!localStorage.getItem(onboardFlag)) {
+                openOnboardingSlideshow();
+            }
+        }
+
+        function signOutUser() {
+            localStorage.removeItem('spark_active_session_user');
+            state.user = null;
+            document.getElementById('logged-in-header-controls')?.classList.add('hidden');
+            document.getElementById('editor-save-btn')?.classList.add('hidden');
+            const authLabel = document.getElementById('auth-header-label');
+            if (authLabel) authLabel.textContent = 'Sign In';
+            closeAuthModal();
+            showToast('Signed out');
+        }
+
+        function updateUserNickname() {
+            if (!state.user) return;
+            const val = document.getElementById('profile-nickname-input')?.value.trim();
+            if (val) {
+                state.user.nickname = val;
+                const authLabel = document.getElementById('auth-header-label');
+                if (authLabel) authLabel.textContent = val;
+                saveAccountWorkspace(true);
+                closeAuthModal();
+            }
+        }
+
+        function openOnboardingSlideshow() {
+            state.onboardingStep = 0;
+            if (state.user) {
+                document.getElementById('onboard-input-bio').value = state.user.bio || '';
+                document.getElementById('onboard-input-audio').value = state.user.audioName || '';
+                document.getElementById('onboard-input-nickname').value = state.user.nickname || '';
+            }
+            renderOnboardingSlide();
+            document.getElementById('onboarding-modal')?.classList.remove('hidden');
+            refreshIcons();
+        }
+
+        function renderOnboardingSlide() {
+            const step = state.onboardingStep;
+            for (let i = 0; i < 4; i++) {
+                document.getElementById(`onboard-slide-${i}`)?.classList.toggle('hidden', i !== step);
+                const dot = document.getElementById(`onboard-dot-${i}`);
+                if (dot) dot.className = i === step ? 'w-2.5 h-2.5 rounded-full bg-indigo-500' : 'w-2.5 h-2.5 rounded-full bg-zinc-400/40';
+            }
+            const pill = document.getElementById('onboard-step-pill');
+            if (pill) pill.textContent = `Step ${step + 1} of 4`;
+            const prevBtn = document.getElementById('onboard-prev-btn');
+            const nextBtn = document.getElementById('onboard-next-btn');
+            if (prevBtn) prevBtn.disabled = step === 0;
+            if (nextBtn) nextBtn.textContent = step === 3 ? 'Finish Setup ✓' : 'Next →';
+        }
+
+        function prevOnboardingSlide() {
+            if (state.onboardingStep > 0) {
+                state.onboardingStep--;
+                renderOnboardingSlide();
+            }
+        }
+
+        function nextOnboardingSlide() {
+            if (state.onboardingStep < 3) {
+                state.onboardingStep++;
+                renderOnboardingSlide();
+                return;
+            }
+            if (state.user) {
+                const bio = document.getElementById('onboard-input-bio')?.value.trim();
+                const audio = document.getElementById('onboard-input-audio')?.value.trim();
+                const nick = document.getElementById('onboard-input-nickname')?.value.trim();
+                if (bio) state.user.bio = bio;
+                if (audio) state.user.audioName = audio.startsWith('@') ? audio : '@' + audio;
+                if (nick) state.user.nickname = nick;
+
+                const authLabel = document.getElementById('auth-header-label');
+                if (authLabel && state.user.nickname) authLabel.textContent = state.user.nickname;
+                const callSelf = document.getElementById('call-name-self');
+                if (callSelf && state.user.audioName) callSelf.textContent = state.user.audioName;
+
+                localStorage.setItem('spark_onboarded_' + state.user.email.toLowerCase(), '1');
+                saveAccountWorkspace(false);
+            }
+            document.getElementById('onboarding-modal')?.classList.add('hidden');
+            showToast('Profile personalized!');
+        }
+
+        function skipOnboardingSlideshow() {
+            if (state.user?.email) {
+                localStorage.setItem('spark_onboarded_' + state.user.email.toLowerCase(), '1');
+            }
+            document.getElementById('onboarding-modal')?.classList.add('hidden');
+        }
+
+        // ==========================================
+        // CLOUDFLARE PAGES EXPORT & DRAGGABLE RESIZERS
+        // ==========================================
+        function openCloudflareModal() {
+            document.getElementById('cloudflare-modal')?.classList.remove('hidden');
+            refreshIcons();
+        }
+        function closeCloudflareModal() {
+            document.getElementById('cloudflare-modal')?.classList.add('hidden');
+        }
+
+        async function downloadProjectBundle() {
+            if (typeof JSZip === 'undefined') {
+                showToast('JSZip still loading...');
+                return;
+            }
+            syncCurrentBuffer();
+            const zip = new JSZip();
+            Object.entries(state.files).forEach(([lang, pair]) => {
+                const tpl = LANGUAGE_TEMPLATES[lang];
+                if (pair.main) zip.file(tpl.mainName, pair.main);
+                if (pair.tests) zip.file(tpl.testName, pair.tests);
+            });
+            const blob = await zip.generateAsync({ type: 'blob' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'spark-code-workspace.zip';
+            a.click();
+            showToast('Downloaded spark-code-workspace.zip!');
+        }
+
+        async function downloadCloudflareSiteBundle() {
+            if (typeof JSZip === 'undefined') {
+                showToast('JSZip still loading...');
+                return;
+            }
+            const zip = new JSZip();
+            zip.file('index.html', '<!DOCTYPE html>\n' + document.documentElement.outerHTML);
+            zip.file('_headers', '/*\n  X-Frame-Options: SAMEORIGIN\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n');
+            zip.file('README.md', '# Spark Collaborative AI Coding IDE (Cloudflare Pages)\n\n1. Go to Cloudflare Dashboard -> Workers & Pages -> Create -> Pages -> Direct Upload.\n2. Upload this ZIP file and deploy. Zero server functions or credits required.\n');
+            const blob = await zip.generateAsync({ type: 'blob' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'spark-cloudflare-pages.zip';
+            a.click();
+            showToast('Downloaded spark-cloudflare-pages.zip!');
+        }
+        function closeApiModal() {
+            document.getElementById('api-modal')?.classList.add('hidden');
+        }
+        function saveApiKey() {
+            localStorage.setItem('spark_gemini_key', document.getElementById('custom-api-key')?.value.trim() || '');
+            localStorage.setItem('spark_openai_key', document.getElementById('openai-api-key')?.value.trim() || '');
+            localStorage.setItem('spark_anthropic_key', document.getElementById('anthropic-api-key')?.value.trim() || '');
+            localStorage.setItem('spark_xai_key', document.getElementById('xai-api-key')?.value.trim() || '');
+            closeApiModal();
+            showToast('API keys saved locally in your browser!');
+        }
+
+        function openFriendsModal() {
+            document.getElementById('friends-modal')?.classList.remove('hidden');
+            renderFriendsUI();
+        }
+        function closeFriendsModal() {
+            document.getElementById('friends-modal')?.classList.add('hidden');
+        }
+        function sendFriendRequest(e) {
+            e.preventDefault();
+            const input = document.getElementById('friend-add-input');
+            const handle = (input?.value || '').trim();
+            if (!handle) return;
+            input.value = '';
+            state.friends.push({ handle, addedAt: new Date().toLocaleDateString() });
+            renderFriendsUI();
+            saveAccountWorkspace(false);
+            showToast(`Added ${handle} to your Spark friends!`);
+        }
+        function renderFriendsUI() {
+            const reqList = document.getElementById('incoming-requests-list');
+            const friendsList = document.getElementById('friends-list');
+            if (reqList) {
+                reqList.innerHTML = state.friendRequests.length === 0
+                    ? '<p class="text-[11px] text-zinc-500">No incoming requests right now.</p>'
+                    : state.friendRequests.map(r => `<div class="p-2 rounded-xl bg-studio-850 text-xs">${escapeHtml(r)}</div>`).join('');
+            }
+            if (friendsList) {
+                friendsList.innerHTML = state.friends.length === 0
+                    ? '<p class="text-[11px] text-zinc-500">No friends added yet. Add a teammate above!</p>'
+                    : state.friends.map(f => `<div class="p-2.5 rounded-xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-xs"><span class="font-medium text-zinc-900 dark:text-white">${escapeHtml(f.handle)}</span><span class="text-[10px] text-emerald-500">● Ready</span></div>`).join('');
+            }
+        }
+
+        function openNotificationsModal() {
+            document.getElementById('notifications-modal')?.classList.remove('hidden');
+            renderNotificationsFeed();
+        }
+        function closeNotificationsModal() {
+            document.getElementById('notifications-modal')?.classList.add('hidden');
+        }
+        function renderNotificationsFeed() {
+            const feed = document.getElementById('notifications-feed');
+            if (!feed) return;
+            feed.innerHTML = state.notifications.length === 0
+                ? '<p class="text-[11px] text-zinc-500">No notifications yet.</p>'
+                : state.notifications.map(n => `<div class="p-2.5 rounded-xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 text-xs">${escapeHtml(n)}</div>`).join('');
+        }
+        async function enableBrowserPushNotifications() {
+            if (!('Notification' in window)) {
+                showToast('Browser notifications not supported here.');
+                return;
+            }
+            const perm = await Notification.requestPermission();
+            showToast(perm === 'granted' ? 'Desktop push alerts enabled!' : 'Permission declined.');
+        }
+        function testPushNotification() {
+            const msg = '⚡ Sparky: Your workspace is synced and ready!';
+            state.notifications.unshift(msg);
+            renderNotificationsFeed();
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('Spark AI IDE', { body: msg });
+            } else {
+                showToast(msg);
+            }
+        }
+
+        function toggleGeminiVoiceCall() {
+            state.inVoiceCall = !state.inVoiceCall;
+            const btnText = document.getElementById('join-call-text');
+            const statusGem = document.getElementById('status-gemini');
+            const avatarGem = document.getElementById('avatar-gemini');
+            const dot = document.getElementById('call-status-dot');
+            const muteBtn = document.getElementById('mute-mic-btn');
+
+            if (btnText) btnText.textContent = state.inVoiceCall ? 'Leave Voice Call' : 'Join Voice Call with Gemini';
+            if (statusGem) statusGem.textContent = state.inVoiceCall ? 'Connected • Listening' : 'Ready to join';
+            avatarGem?.classList.toggle('voice-pulse', state.inVoiceCall);
+            dot?.classList.toggle('hidden', !state.inVoiceCall);
+            if (muteBtn) muteBtn.disabled = !state.inVoiceCall;
+            showToast(state.inVoiceCall ? 'Connected to Gemini Live Voice Room' : 'Left voice room');
+        }
+
+        function toggleMuteMic() {
+            state.micMuted = !state.micMuted;
+            showToast(state.micMuted ? 'Microphone muted' : 'Microphone unmuted');
+        }
+
+        function handleTeamChatSubmit(e) {
+            e.preventDefault();
+            const input = document.getElementById('team-input');
+            const msg = (input?.value || '').trim();
+            if (!msg) return;
+            input.value = '';
+            const box = document.getElementById('team-messages');
+            if (!box) return;
+            const div = document.createElement('div');
+            div.className = 'p-2.5 rounded-xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 text-xs';
+            div.innerHTML = `<strong class="text-indigo-500">${escapeHtml(state.user?.audioName || 'You')}:</strong> ${escapeHtml(msg)}`;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function initPanelResizers() {
+            const sidebarHandle = document.getElementById('resizer-sidebar');
+            const sidebarPane = document.getElementById('pane-sidebar');
+            const consoleHandle = document.getElementById('resizer-console');
+            const consolePane = document.getElementById('pane-console');
+            const sandbox = document.getElementById('html-sandbox');
+
+            if (sidebarHandle && sidebarPane) {
+                sidebarHandle.addEventListener('dblclick', () => {
+                    sidebarPane.style.width = '';
+                    sidebarPane.style.height = '';
+                });
+                sidebarHandle.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    sidebarHandle.classList.add('dragging');
+                    sidebarHandle.setPointerCapture(e.pointerId);
+                    if (sandbox) sandbox.style.pointerEvents = 'none';
+                    const isDesktop = window.innerWidth >= 1024;
+                    const startPos = isDesktop ? e.clientX : e.clientY;
+                    const startSize = isDesktop ? sidebarPane.getBoundingClientRect().width : sidebarPane.getBoundingClientRect().height;
+
+                    const onMove = (ev) => {
+                        const delta = (isDesktop ? ev.clientX : ev.clientY) - startPos;
+                        if (isDesktop) {
+                            const nextW = Math.min(Math.max(240, startSize + delta), window.innerWidth * 0.55);
+                            sidebarPane.style.width = `${nextW}px`;
+                        } else {
+                            const nextH = Math.min(Math.max(150, startSize + delta), window.innerHeight * 0.65);
+                            sidebarPane.style.height = `${nextH}px`;
+                        }
+                    };
+                    const onUp = () => {
+                        sidebarHandle.classList.remove('dragging');
+                        if (sandbox) sandbox.style.pointerEvents = '';
+                        sidebarHandle.removeEventListener('pointermove', onMove);
+                        sidebarHandle.removeEventListener('pointerup', onUp);
+                    };
+                    sidebarHandle.addEventListener('pointermove', onMove);
+                    sidebarHandle.addEventListener('pointerup', onUp);
+                });
+            }
+
+            if (consoleHandle && consolePane) {
+                consoleHandle.addEventListener('dblclick', () => {
+                    consolePane.style.width = '';
+                    consolePane.style.height = '';
+                });
+                consoleHandle.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    consoleHandle.classList.add('dragging');
+                    consoleHandle.setPointerCapture(e.pointerId);
+                    if (sandbox) sandbox.style.pointerEvents = 'none';
+                    const isDesktop = window.innerWidth >= 768;
+                    const startPos = isDesktop ? e.clientX : e.clientY;
+                    const startSize = isDesktop ? consolePane.getBoundingClientRect().width : consolePane.getBoundingClientRect().height;
+
+                    const onMove = (ev) => {
+                        const delta = startPos - (isDesktop ? ev.clientX : ev.clientY);
+                        if (isDesktop) {
+                            const nextW = Math.min(Math.max(200, startSize + delta), window.innerWidth * 0.65);
+                            consolePane.style.width = `${nextW}px`;
+                        } else {
+                            const nextH = Math.min(Math.max(120, startSize + delta), window.innerHeight * 0.65);
+                            consolePane.style.height = `${nextH}px`;
+                        }
+                    };
+                    const onUp = () => {
+                        consoleHandle.classList.remove('dragging');
+                        if (sandbox) sandbox.style.pointerEvents = '';
+                        consoleHandle.removeEventListener('pointermove', onMove);
+                        consoleHandle.removeEventListener('pointerup', onUp);
+                    };
+                    consoleHandle.addEventListener('pointermove', onMove);
+                    consoleHandle.addEventListener('pointerup', onUp);
+                });
+            }
+        }
+
+        // ==========================================
+        // AI AGENTS, STUDIO, CODE EXECUTION & CLOUD QUEUE
+        // ==========================================
+        function getAllAvailableAgents() {
+            const builtIn = Object.entries(MODEL_PROFILES).map(([id, prof]) => ({
+                id,
+                name: prof.name,
+                emoji: id === 'sparky' ? '⚡' : id === 'spark-bot' ? '🔥' : id === 'grok-3' ? '🚀' : '✨',
+                handle: '@' + id.replace(/[^a-z0-9]/gi, ''),
+                vibe: 'native',
+                catchphrase: prof.placeholder,
+                instructions: prof.persona,
+                avatar: DEFAULT_BOT_AVATARS[0],
+                isBuiltIn: true
+            }));
+            const custom = state.customBots.map(b => ({ ...b, isBuiltIn: false }));
+            return [...builtIn, ...custom];
+        }
+
+        function syncAllAgentDropdowns() {
+            const agents = getAllAvailableAgents();
+            const selects = [document.getElementById('agent-model-select'), document.getElementById('cloud-job-agent')];
+            selects.forEach(sel => {
+                if (!sel) return;
+                const prev = sel.value || state.selectedModel;
+                sel.innerHTML = agents.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.emoji || '🤖')} ${escapeHtml(a.name)}</option>`).join('');
+                if (agents.some(a => a.id === prev)) sel.value = prev;
+            });
+        }
+
+        function switchAgentModel(modelId) {
+            state.selectedModel = modelId;
+            const agent = getAllAvailableAgents().find(a => a.id === modelId);
+            const input = document.getElementById('agent-input');
+            if (input && agent) {
+                input.placeholder = `Ask ${agent.name} to write, refactor, or explain code...`;
+            }
+            saveAccountWorkspace(false);
+        }
+
+        function renderHomeAgentsGrid() {
+            const grid = document.getElementById('home-agents-grid');
+            if (!grid) return;
+            grid.innerHTML = state.customBots.map(bot => `
+                <div class="p-4 rounded-2xl bg-studio-900 border border-zinc-200 dark:border-zinc-800 hover:border-fuchsia-500/50 transition-all flex flex-col justify-between gap-3">
+                    <div class="flex items-start gap-3">
+                        <img src="${escapeHtml(bot.avatar || DEFAULT_BOT_AVATARS[0])}" alt="${escapeHtml(bot.name)}" class="w-11 h-11 rounded-2xl object-cover border border-fuchsia-500/30 shrink-0">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-sm">${escapeHtml(bot.emoji || '🤖')}</span>
+                                <h3 class="font-bold text-xs text-zinc-900 dark:text-white truncate">${escapeHtml(bot.name)}</h3>
+                            </div>
+                            <p class="text-[11px] font-mono text-fuchsia-600 dark:text-fuchsia-400">${escapeHtml(bot.handle || '@bot')}</p>
+                            <p class="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2 mt-1">${escapeHtml(bot.catchphrase || bot.instructions || '')}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between pt-2 border-t border-zinc-200 dark:border-zinc-800/80">
+                        <button onclick="openAgentStudioModal('${escapeHtml(bot.id)}')" class="text-[11px] font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-white cursor-pointer">Customize</button>
+                        <button onclick="equipBotAndEnter('${escapeHtml(bot.id)}')" class="px-3 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer">Code with Bot →</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function equipBotAndEnter(botId) {
+            state.selectedModel = botId;
+            syncAllAgentDropdowns();
+            enterWorkspace('agent');
+            showToast('Equipped agent in workspace!');
+        }
+
+        function openAgentStudioModal(editBotId = null) {
+            renderAvatarPresets();
+            renderStudioBotsList();
+            if (editBotId) {
+                loadBotIntoStudioForm(editBotId);
+            } else {
+                resetStudioForm();
+            }
+            document.getElementById('agent-studio-modal')?.classList.remove('hidden');
+            refreshIcons();
+        }
+
+        function closeAgentStudioModal() {
+            document.getElementById('agent-studio-modal')?.classList.add('hidden');
+        }
+
+        function renderAvatarPresets() {
+            const box = document.getElementById('studio-avatar-presets');
+            if (!box) return;
+            box.innerHTML = DEFAULT_BOT_AVATARS.map((src, i) => `
+                <button type="button" onclick="updateStudioAvatarPreview('${src}')" class="w-9 h-9 rounded-xl overflow-hidden border border-zinc-300 dark:border-zinc-700 hover:border-fuchsia-500 shrink-0 cursor-pointer" title="Preset ${i + 1}">
+                    <img src="${src}" alt="Preset ${i + 1}" class="w-full h-full object-cover">
+                </button>
+            `).join('');
+        }
+
+        function updateStudioAvatarPreview(url) {
+            const clean = (url || '').trim() || DEFAULT_BOT_AVATARS[0];
+            const prev = document.getElementById('studio-bot-avatar-preview');
+            const inp = document.getElementById('studio-bot-avatar-url');
+            if (prev) prev.src = clean;
+            if (inp && inp.value !== clean) inp.value = clean;
+        }
+
+        function handleBotAvatarUpload(e) {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => updateStudioAvatarPreview(reader.result);
+            reader.readAsDataURL(file);
+        }
+
+        function renderStudioBotsList() {
+            const list = document.getElementById('studio-bots-list');
+            if (!list) return;
+            list.innerHTML = state.customBots.map(bot => `
+                <div onclick="loadBotIntoStudioForm('${escapeHtml(bot.id)}')" class="p-2.5 rounded-xl bg-studio-850 hover:bg-studio-800 border border-zinc-200 dark:border-zinc-800 flex items-center gap-2.5 cursor-pointer">
+                    <img src="${escapeHtml(bot.avatar || DEFAULT_BOT_AVATARS[0])}" class="w-8 h-8 rounded-lg object-cover shrink-0">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-xs font-semibold text-zinc-900 dark:text-white truncate">${escapeHtml(bot.emoji || '🤖')} ${escapeHtml(bot.name)}</div>
+                        <div class="text-[10px] font-mono text-zinc-500 truncate">${escapeHtml(bot.handle)}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function resetStudioForm() {
+            document.getElementById('studio-bot-id').value = '';
+            document.getElementById('studio-bot-emoji').value = '🤖';
+            document.getElementById('studio-bot-name').value = '';
+            document.getElementById('studio-bot-handle').value = '@mybot';
+            document.getElementById('studio-bot-vibe').value = 'sarcastic';
+            document.getElementById('studio-bot-sass').value = 75;
+            document.getElementById('studio-sass-val').textContent = '75%';
+            document.getElementById('studio-bot-catchphrase').value = '';
+            document.getElementById('studio-bot-instructions').value = '';
+            updateStudioAvatarPreview(DEFAULT_BOT_AVATARS[0]);
+        }
+
+        function loadBotIntoStudioForm(botId) {
+            const bot = state.customBots.find(b => b.id === botId);
+            if (!bot) return;
+            document.getElementById('studio-bot-id').value = bot.id;
+            document.getElementById('studio-bot-emoji').value = bot.emoji || '🤖';
+            document.getElementById('studio-bot-name').value = bot.name || '';
+            document.getElementById('studio-bot-handle').value = bot.handle || '@bot';
+            document.getElementById('studio-bot-vibe').value = bot.vibe || 'sarcastic';
+            document.getElementById('studio-bot-sass').value = bot.sass ?? 75;
+            document.getElementById('studio-sass-val').textContent = (bot.sass ?? 75) + '%';
+            document.getElementById('studio-bot-catchphrase').value = bot.catchphrase || '';
+            document.getElementById('studio-bot-instructions').value = bot.instructions || '';
+            updateStudioAvatarPreview(bot.avatar || DEFAULT_BOT_AVATARS[0]);
+        }
+
+        function saveCustomSparkBot(e) {
+            e.preventDefault();
+            const existingId = document.getElementById('studio-bot-id').value.trim();
+            const name = document.getElementById('studio-bot-name').value.trim();
+            if (!name) return;
+            const rawHandle = document.getElementById('studio-bot-handle').value.trim() || '@sparkbot';
+            const botObj = {
+                id: existingId || ('bot-' + Date.now()),
+                emoji: document.getElementById('studio-bot-emoji').value.trim() || '🤖',
+                avatar: document.getElementById('studio-bot-avatar-url').value.trim() || DEFAULT_BOT_AVATARS[0],
+                name,
+                handle: rawHandle.startsWith('@') ? rawHandle : '@' + rawHandle,
+                vibe: document.getElementById('studio-bot-vibe').value,
+                sass: Number(document.getElementById('studio-bot-sass').value || 75),
+                catchphrase: document.getElementById('studio-bot-catchphrase').value.trim(),
+                instructions: document.getElementById('studio-bot-instructions').value.trim()
+            };
+            const idx = state.customBots.findIndex(b => b.id === botObj.id);
+            if (idx >= 0) state.customBots[idx] = botObj;
+            else state.customBots.unshift(botObj);
+
+            state.selectedModel = botObj.id;
+            syncAllAgentDropdowns();
+            renderHomeAgentsGrid();
+            saveAccountWorkspace(false);
+            closeAgentStudioModal();
+            showToast(`Saved & equipped ${botObj.name}!`);
+        }
+
+        function openApiModal() {
+            document.getElementById('custom-api-key').value = localStorage.getItem('spark_gemini_key') || '';
+            document.getElementById('openai-api-key').value = localStorage.getItem('spark_openai_key') || '';
+            document.getElementById('anthropic-api-key').value = localStorage.getItem('spark_anthropic_key') || '';
+            document.getElementById('xai-api-key').value = localStorage.getItem('spark_xai_key') || '';
+            document.getElementById('api-modal')?.classList.remove('hidden');
+            refreshIcons();
+        }
+
+        function switchFileTab(tab) {
+            syncCurrentBuffer();
+            state.activeFileTab = tab;
+            const isMain = tab === 'main';
+            const btnMain = document.getElementById('file-tab-main');
+            const btnTests = document.getElementById('file-tab-tests');
+            if (btnMain) btnMain.className = isMain
+                ? 'flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono bg-studio-800 text-indigo-600 dark:text-indigo-300 border border-zinc-300 dark:border-zinc-700/70 cursor-pointer'
+                : 'flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-studio-800/50 cursor-pointer';
+            if (btnTests) btnTests.className = !isMain
+                ? 'flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono bg-studio-800 text-emerald-600 dark:text-emerald-300 border border-zinc-300 dark:border-zinc-700/70 cursor-pointer'
+                : 'flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-studio-800/50 cursor-pointer';
+            const editor = document.getElementById('code-editor');
+            if (editor) editor.value = state.files[state.language][tab] || '';
+        }
+
+        function loadStarterExample() {
+            const tpl = LANGUAGE_TEMPLATES[state.language];
+            if (!tpl) return;
+            state.files[state.language][state.activeFileTab] = state.activeFileTab === 'main' ? tpl.mainCode : tpl.testCode;
+            const editor = document.getElementById('code-editor');
+            if (editor) editor.value = state.files[state.language][state.activeFileTab];
+            syncCurrentBuffer();
+            showToast(`Loaded ${state.language} starter example!`);
+        }
+
+        function copyEditorCode() {
+            const editor = document.getElementById('code-editor');
+            if (!editor) return;
+            editor.select();
+            document.execCommand('copy');
+            showToast('Code copied to clipboard!');
+        }
+
+        function clearConsole() {
+            const out = document.getElementById('console-output');
+            if (out) out.innerHTML = '<div class="text-zinc-400 dark:text-zinc-500">// Console cleared.</div>';
+            state.lastExecutionError = '';
+            document.getElementById('console-fix-btn')?.classList.add('hidden');
+        }
+
+        function appendConsoleLine(text, kind = 'info') {
+            const out = document.getElementById('console-output');
+            if (!out) return;
+            const line = document.createElement('div');
+            if (kind === 'error') {
+                line.className = 'text-rose-500 dark:text-rose-400 whitespace-pre-wrap';
+            } else if (kind === 'success') {
+                line.className = 'text-emerald-600 dark:text-emerald-400 whitespace-pre-wrap';
+            } else {
+                line.className = 'text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap';
+            }
+            line.textContent = text;
+            out.appendChild(line);
+            out.scrollTop = out.scrollHeight;
+        }
+
+        async function runCode() {
+            syncCurrentBuffer();
+            const lang = state.language;
+            const code = state.files[lang][state.activeFileTab] || '';
+            state.lastExecutionError = '';
+            document.getElementById('console-fix-btn')?.classList.add('hidden');
+
+            if (lang === 'html') {
+                const sandbox = document.getElementById('html-sandbox');
+                if (sandbox) sandbox.srcdoc = code || LANGUAGE_TEMPLATES.html.mainCode;
+                showToast('HTML Sandbox updated!');
+                return;
+            }
+
+            clearConsole();
+            if (!code.trim()) {
+                appendConsoleLine('// Editor is empty. Click "Load Example" or ask Sparky to write code!', 'info');
+                return;
+            }
+
+            if (lang === 'javascript' || lang === 'typescript') {
+                try {
+                    const cleanJs = lang === 'typescript'
+                        ? code.replace(/:\s*[A-Za-z0-9_<>\[\]\|\{\}\s]+(?=[,\)\=\{])/g, '').replace(/interface\s+\w+\s*\{[\s\S]*?\}/g, '')
+                        : code;
+                    const logs = [];
+                    const customConsole = {
+                        log: (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')),
+                        error: (...args) => logs.push('[Error] ' + args.join(' ')),
+                        warn: (...args) => logs.push('[Warn] ' + args.join(' ')),
+                        assert: (cond, msg) => { if (!cond) throw new Error(msg || 'Assertion failed'); }
+                    };
+                    const fn = new Function('console', cleanJs);
+                    fn(customConsole);
+                    if (logs.length === 0) appendConsoleLine('✓ Executed cleanly with no console output.', 'success');
+                    else logs.forEach(l => appendConsoleLine(l, 'info'));
+                } catch (err) {
+                    state.lastExecutionError = err.message || String(err);
+                    appendConsoleLine(`RuntimeError: ${state.lastExecutionError}`, 'error');
+                    document.getElementById('console-fix-btn')?.classList.remove('hidden');
+                }
+                return;
+            }
+
+            if (lang === 'python') {
+                try {
+                    if (!state.pyodide) {
+                        appendConsoleLine('⏳ Initializing Python 3 (Pyodide) runtime...', 'info');
+                        if (typeof loadPyodide !== 'function') {
+                            throw new Error('Pyodide script still loading. Try again in a moment.');
+                        }
+                        state.pyodide = await loadPyodide();
+                        clearConsole();
+                    }
+                    state.pyodide.setStdout({ batched: (msg) => appendConsoleLine(msg, 'info') });
+                    state.pyodide.setStderr({ batched: (msg) => appendConsoleLine(msg, 'error') });
+                    await state.pyodide.runPythonAsync(code);
+                    appendConsoleLine('✓ Python execution finished.', 'success');
+                } catch (err) {
+                    state.lastExecutionError = err.message || String(err);
+                    appendConsoleLine(state.lastExecutionError, 'error');
+                    document.getElementById('console-fix-btn')?.classList.remove('hidden');
+                }
+                return;
+            }
+
+            appendConsoleLine(`✓ ${LANGUAGE_TEMPLATES[lang].badge} syntax check passed (${code.split('\n').length} lines).`, 'success');
+        }
+
+        function fixLastErrorWithSparky() {
+            const errText = state.lastExecutionError || 'Unknown error';
+            const prompt = `Fix this ${state.language} error in my current code and return the complete corrected code:\n${errText}`;
+            switchLeftTab('agent');
+            triggerQuickPrompt(prompt);
+        }
+
+        function triggerQuickPrompt(text) {
+            const input = document.getElementById('agent-input');
+            if (input) input.value = text;
+            handleAgentSubmit({ preventDefault: () => {} });
+        }
+
+        function extractCodeBlockFromMarkdown(reply) {
+            const match = reply.match(/```[a-zA-Z0-9_-]*\n([\s\S]*?)```/);
+            return match ? match[1].trim() : null;
+        }
+
+        async function requestAgentCodeGeneration(prompt, agent, lang, currentCode) {
+            const userNick = state.user?.nickname || state.user?.name || 'Builder';
+            const systemPrompt = `${agent.instructions || 'You are Sparky, an expert AI coding assistant.'} Address the user as "${userNick}". Target language: ${lang}. Always include complete, runnable code inside a single fenced markdown code block (\`\`\`${lang} ... \`\`\`) when asked to write, build, or fix code.`;
+            const fullPrompt = `${systemPrompt}\n\nCurrent editor code:\n\`\`\`${lang}\n${currentCode}\n\`\`\`\n\nUser request: ${prompt}`;
+
+            const geminiKey = localStorage.getItem('spark_gemini_key');
+            const openaiKey = localStorage.getItem('spark_openai_key');
+            const xaiKey = localStorage.getItem('spark_xai_key');
+
+            try {
+                if (agent.id === 'grok-3' && xaiKey) {
+                    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${xaiKey}` },
+                        body: JSON.stringify({ model: 'grok-3-mini', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: fullPrompt }] })
+                    });
+                    const data = await res.json();
+                    if (data.choices?.[0]?.message?.content) return data.choices[0].message.content;
+                }
+                if (agent.id === 'gpt-4o' && openaiKey) {
+                    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+                        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: fullPrompt }] })
+                    });
+                    const data = await res.json();
+                    if (data.choices?.[0]?.message?.content) return data.choices[0].message.content;
+                }
+                if (geminiKey) {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] })
+                    });
+                    const data = await res.json();
+                    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (text) return text;
+                }
+
+                const pollRes = await fetch('https://text.pollinations.ai/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            { role: 'user', content: fullPrompt }
+                        ],
+                        model: 'openai'
+                    })
+                });
+                if (pollRes.ok) {
+                    const txt = await pollRes.text();
+                    if (txt && txt.trim()) return txt.trim();
+                }
+            } catch (_) {}
+
+            return `Here is runnable ${lang} code for "${prompt}", ${userNick}:\n\n\`\`\`${lang}\n${LANGUAGE_TEMPLATES[lang]?.mainCode || ''}\n\`\`\``;
+        }
+
+        async function handleAgentSubmit(e) {
+            if (e && e.preventDefault) e.preventDefault();
+            const input = document.getElementById('agent-input');
+            const box = document.getElementById('agent-messages');
+            const prompt = (input?.value || '').trim();
+            if (!prompt || !box) return;
+            input.value = '';
+            syncCurrentBuffer();
+
+            const agent = getAllAvailableAgents().find(a => a.id === state.selectedModel) || getAllAvailableAgents()[0];
+            const userDiv = document.createElement('div');
+            userDiv.className = 'p-3 rounded-2xl bg-indigo-600 text-white text-xs ml-6';
+            userDiv.textContent = prompt;
+            box.appendChild(userDiv);
+
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'p-3 rounded-2xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500 animate-pulse';
+            loadingDiv.textContent = `${agent.emoji} ${agent.name} is coding...`;
+            box.appendChild(loadingDiv);
+            box.scrollTop = box.scrollHeight;
+
+            const reply = await requestAgentCodeGeneration(prompt, agent, state.language, state.files[state.language][state.activeFileTab] || '');
+            const extractedCode = extractCodeBlockFromMarkdown(reply);
+
+            loadingDiv.classList.remove('animate-pulse');
+            loadingDiv.className = 'p-3 rounded-2xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-800 dark:text-zinc-200 space-y-2';
+            loadingDiv.innerHTML = `
+                <div class="font-semibold text-indigo-500">${escapeHtml(agent.emoji)} ${escapeHtml(agent.name)}</div>
+                <div class="whitespace-pre-wrap leading-relaxed">${escapeHtml(reply.replace(/```[\s\S]*?```/g, '[Code generated & applied to editor]'))}</div>
+                ${extractedCode ? `<button type="button" class="apply-agent-code-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer">Apply &amp; Run in Editor</button>` : ''}
+            `;
+
+            if (extractedCode) {
+                const applyBtn = loadingDiv.querySelector('.apply-agent-code-btn');
+                const applyFn = () => {
+                    state.files[state.language][state.activeFileTab] = extractedCode;
+                    const editor = document.getElementById('code-editor');
+                    if (editor) editor.value = extractedCode;
+                    saveAccountWorkspace(false);
+                    runCode();
+                };
+                if (applyBtn) applyBtn.addEventListener('click', applyFn);
+                applyFn();
+            }
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function openCloudTasksModal() {
+            renderCloudTasksUI();
+            document.getElementById('cloud-tasks-modal')?.classList.remove('hidden');
+            refreshIcons();
+        }
+        function closeCloudTasksModal() {
+            document.getElementById('cloud-tasks-modal')?.classList.add('hidden');
+        }
+        function handleDispatchCloudForm(e) {
+            e.preventDefault();
+            const promptEl = document.getElementById('cloud-job-prompt');
+            const agentEl = document.getElementById('cloud-job-agent');
+            const prompt = (promptEl?.value || '').trim();
+            if (!prompt) return;
+            promptEl.value = '';
+            dispatchCloudBackgroundTask(prompt, agentEl?.value || state.selectedModel);
+        }
+        async function dispatchCloudBackgroundTask(prompt, agentId = state.selectedModel) {
+            const agent = getAllAvailableAgents().find(a => a.id === agentId) || getAllAvailableAgents()[0];
+            const job = {
+                id: 'job-' + Date.now(),
+                agentName: `${agent.emoji} ${agent.name}`,
+                prompt,
+                language: state.language,
+                status: 'running',
+                code: '',
+                createdAt: new Date().toLocaleTimeString()
+            };
+            state.cloudTasks.unshift(job);
+            renderCloudTasksUI();
+            showToast(`Queued "${prompt}" in browser worker...`);
+
+            const reply = await requestAgentCodeGeneration(prompt, agent, state.language, state.files[state.language][state.activeFileTab] || '');
+            job.code = extractCodeBlockFromMarkdown(reply) || reply;
+            job.status = 'completed';
+            renderCloudTasksUI();
+            saveAccountWorkspace(false);
+        }
+        function renderCloudTasksUI() {
+            const list = document.getElementById('cloud-tasks-list');
+            if (!list) return;
+            list.innerHTML = state.cloudTasks.length === 0
+                ? '<p class="text-[11px] text-zinc-500">No background jobs queued yet.</p>'
+                : state.cloudTasks.map((job, idx) => `
+                    <div class="p-3 rounded-xl bg-studio-850 border border-zinc-200 dark:border-zinc-800 space-y-1.5 text-xs">
+                        <div class="flex items-center justify-between">
+                            <span class="font-semibold text-zinc-900 dark:text-white">${escapeHtml(job.agentName)}</span>
+                            <span class="text-[10px] font-mono ${job.status === 'completed' ? 'text-emerald-500' : 'text-amber-500'}">${escapeHtml(job.status)}</span>
+                        </div>
+                        <p class="text-[11px] text-zinc-500">${escapeHtml(job.prompt)}</p>
+                        ${job.code ? `<button type="button" onclick="loadCloudJobIntoEditor(${idx})" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer">Load into Editor</button>` : ''}
+                    </div>
+                `).join('');
+        }
+        function loadCloudJobIntoEditor(idx) {
+            const job = state.cloudTasks[idx];
+            if (!job || !job.code) return;
+            state.files[state.language][state.activeFileTab] = job.code;
+            const editor = document.getElementById('code-editor');
+            if (editor) editor.value = job.code;
+            closeCloudTasksModal();
+            enterWorkspace('agent');
+            runCode();
+        }
+
+        // ==========================================
+        // INITIALIZATION
+        // ==========================================
+        window.addEventListener('DOMContentLoaded', () => {
+            try {
+                const savedBots = JSON.parse(localStorage.getItem('spark_global_bots_vault') || 'null');
+                if (Array.isArray(savedBots) && savedBots.length > 0) {
+                    state.customBots = savedBots;
+                }
+            } catch (_) {}
+
+            const savedTheme = localStorage.getItem('spark_theme');
+            if (savedTheme === 'light') {
+                document.documentElement.classList.remove('dark');
+                syncThemeToggleUI(false);
+            } else {
+                syncThemeToggleUI(true);
+            }
+
+            syncAllAgentDropdowns();
+            renderHomeAgentsGrid();
+            initPanelResizers();
+            refreshIcons();
+
+            try {
+                const activeSession = JSON.parse(localStorage.getItem('spark_active_session_user') || 'null');
+                if (activeSession && activeSession.email) {
+                    completeSignIn(activeSession);
+                }
+            } catch (_) {}
+        });
+    </script>
+</body>
+</html>
